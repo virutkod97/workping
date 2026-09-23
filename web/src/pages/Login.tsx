@@ -35,7 +35,7 @@ export default function Login() {
           }}
         >
           <Form.Item name="username" rules={[{ required: true, message: 'Nhập tên đăng nhập' }]}>
-            <Input prefix={<UserOutlined />} placeholder="Tên đăng nhập (VD: ns001)" size="large" autoFocus />
+            <Input prefix={<UserOutlined />} placeholder="Tên đăng nhập" size="large" autoFocus />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: 'Nhập mật khẩu' }]}>
             <Input.Password prefix={<LockOutlined />} placeholder="Mật khẩu" size="large" />
