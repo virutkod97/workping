@@ -68,6 +68,8 @@ model User {
   crossAssigned     CrossGroupAssignment[] @relation("CrossAssigner")
   crossReceived     CrossGroupAssignment[] @relation("CrossAssignee")
   crossLead         CrossGroupAssignment[] @relation("CrossAssigneeLead")
+  memberOf          MilestoneMember[]      @relation("MemberUser")
+  memberAssigned    MilestoneMember[]      @relation("MemberAssigner")
 }
 
 /// Công việc (thay sheet CONG_VIEC)
@@ -110,6 +112,7 @@ model Milestone {
   content      String
   weight       Float           @default(1) // Trọng số
   dueDate      DateTime?       @db.Date
+  /// Người chủ trì mốc (vd Phó trưởng phòng được Trưởng phòng giao). Có thể giao bổ sung cho nhiều người thực hiện.
   assigneeId   Int?
   assignee     User?           @relation("MilestoneAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   assignedById Int?
@@ -119,13 +122,17 @@ model Milestone {
   percent      Int             @default(0) // % hoàn thành mốc 0..100
   completedAt  DateTime?       @db.Date
   note         String?
-  /// Người thực hiện nằm ngoài nhóm của Phó trưởng phòng giao mốc
+  /// Người chủ trì nằm ngoài nhóm của Phó trưởng phòng giao mốc
   outOfGroup   Boolean         @default(false)
+  /// Người chủ trì / cấp quản lý đã chủ động đánh "Hoàn thành" (không chờ tất cả người thực hiện)
+  doneManually Boolean         @default(false)
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
   activities Activity[]
   crossGroup CrossGroupAssignment[]
+  /// Người thực hiện được giao bổ sung (nhiều nhân viên cùng làm 1 mốc)
+  members    MilestoneMember[]
 
   @@index([taskId])
   @@index([assigneeId])
@@ -223,4 +230,29 @@ model CrossGroupAssignment {
   @@index([createdAt])
   @@index([assignerId])
   @@index([assigneeId])
+}
+
+/**
+ * Giao bổ sung: một mốc do nhiều nhân viên cùng thực hiện, mỗi người cập nhật tiến độ phần của mình.
+ * Mốc hoàn thành khi TẤT CẢ người thực hiện xong, hoặc khi người chủ trì / cấp quản lý đánh dấu hoàn thành.
+ */
+model MilestoneMember {
+  id           Int             @id @default(autoincrement())
+  milestoneId  Int
+  milestone    Milestone       @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  userId       Int
+  user         User            @relation("MemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedById Int?
+  assignedBy   User?           @relation("MemberAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  status       MilestoneStatus @default(NOT_STARTED)
+  percent      Int             @default(0)
+  completedAt  DateTime?       @db.Date
+  note         String?
+  /// Người thực hiện nằm ngoài nhóm của Phó trưởng phòng đã giao
+  outOfGroup   Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([milestoneId, userId])
+  @@index([userId])
 }

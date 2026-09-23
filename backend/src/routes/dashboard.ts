@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { me } from '../lib/auth';
 import { taskVisibilityWhere } from '../lib/permissions';
-import { serializeMilestone, serializeTask, taskInclude, userBrief, type MilestoneDto } from '../services/serialize';
+import { memberInclude, serializeMilestone, serializeTask, taskInclude, userBrief, type MilestoneDto } from '../services/serialize';
+import { WARNING_LABEL, milestoneWarning } from '../lib/status';
 
 export const dashboardRouter = Router();
 
@@ -46,14 +47,23 @@ dashboardRouter.get('/', async (req, res) => {
 
   // Thống kê theo nhân sự (theo mốc được giao)
   const byPerson = new Map<number, { user: MilestoneDto['assignee']; total: number; done: number; overdue: number; dueSoon: number }>();
+  const countPerson = (user: MilestoneDto['assignee'], w: string, done: boolean) => {
+    if (!user) return;
+    const st = byPerson.get(user.id) ?? { user, total: 0, done: 0, overdue: 0, dueSoon: 0 };
+    st.total++;
+    if (done) st.done++;
+    if (w === 'OVERDUE') st.overdue++;
+    if (w === 'DUE_SOON') st.dueSoon++;
+    byPerson.set(user.id, st);
+  };
   for (const m of milestones) {
-    if (!m.assignee) continue;
-    const s = byPerson.get(m.assignee.id) ?? { user: m.assignee, total: 0, done: 0, overdue: 0, dueSoon: 0 };
-    s.total++;
-    if (m.status === 'DONE') s.done++;
-    if (m.warning === 'OVERDUE') s.overdue++;
-    if (m.warning === 'DUE_SOON') s.dueSoon++;
-    byPerson.set(m.assignee.id, s);
+    countPerson(m.assignee, m.warning, m.status === 'DONE');
+    // Người thực hiện được giao bổ sung: tính theo phần việc của từng người
+    for (const x of m.members) {
+      const done = m.status === 'DONE' || x.status === 'DONE';
+      const w = done ? 'DONE' : milestoneWarning({ status: x.status, dueDate: m.dueDate ? new Date(`${m.dueDate}T00:00:00Z`) : null }, now);
+      countPerson(x.user, w, done);
+    }
   }
 
   const byGroup = new Map<string, { group: string; total: number; done: number; overdue: number }>();
@@ -75,25 +85,49 @@ dashboardRouter.get('/', async (req, res) => {
   });
 });
 
-/** Việc cần xử lý của tôi — tương đương sheet VIEC_CAN_XU_LY lọc theo người dùng */
+/**
+ * Việc cần xử lý của tôi — tương đương sheet VIEC_CAN_XU_LY lọc theo người dùng.
+ * Gồm mốc mình chủ trì (role LEAD) và mốc mình được giao bổ sung thực hiện (role MEMBER, kèm tiến độ phần của mình).
+ */
 dashboardRouter.get('/my-work', async (req, res) => {
   const u = me(req);
   const includeDone = req.query.includeDone === '1';
-  const rows = await prisma.milestone.findMany({
-    where: { assigneeId: u.id, ...(includeDone ? {} : { status: { not: 'DONE' } }) },
-    include: {
-      assignee: userBrief,
-      assignedBy: userBrief,
-      task: { select: { id: true, code: true, title: true, priority: true, owner: userBrief, dueDate: true } },
-    },
-  });
+  const include = {
+    assignee: userBrief,
+    assignedBy: userBrief,
+    members: memberInclude,
+    task: { select: { id: true, code: true, title: true, priority: true, owner: userBrief, dueDate: true } },
+  } as const;
+  const [lead, memberOf] = await Promise.all([
+    prisma.milestone.findMany({ where: { assigneeId: u.id, ...(includeDone ? {} : { status: { not: 'DONE' } }) }, include }),
+    prisma.milestone.findMany({
+      where: {
+        members: { some: { userId: u.id, ...(includeDone ? {} : { status: { not: 'DONE' } }) } },
+        ...(includeDone ? {} : { status: { not: 'DONE' } }),
+      },
+      include,
+    }),
+  ]);
   const now = new Date();
   const order = { OVERDUE: 0, DUE_SOON: 1, ON_TRACK: 2, NO_DEADLINE: 3, DONE: 4 } as const;
-  const items = rows
-    .map((m) => ({
-      ...serializeMilestone(m, now),
-      task: { id: m.task.id, code: m.task.code, title: m.task.title, priority: m.task.priority, owner: m.task.owner },
-    }))
-    .sort((a, b) => order[a.warning] - order[b.warning] || (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999));
+  const taskOf = (m: (typeof lead)[number]) => ({ id: m.task.id, code: m.task.code, title: m.task.title, priority: m.task.priority, owner: m.task.owner });
+  const items = [
+    ...lead.map((m) => ({ ...serializeMilestone(m, now), task: taskOf(m), myRole: 'LEAD' as const, myPart: null })),
+    ...memberOf.map((m) => {
+      const dto = serializeMilestone(m, now);
+      const mine = dto.members.find((x) => x.user.id === u.id)!;
+      // Cảnh báo theo phần việc của mình: mình xong rồi thì không còn quá hạn
+      const warning = m.status === 'DONE' || mine.status === 'DONE' ? 'DONE' : milestoneWarning({ status: mine.status, dueDate: m.dueDate }, now);
+      return {
+        ...dto,
+        warning,
+        warningLabel: WARNING_LABEL[warning],
+        daysLeft: warning === 'DONE' ? null : dto.daysLeft,
+        task: taskOf(m),
+        myRole: 'MEMBER' as const,
+        myPart: mine,
+      };
+    }),
+  ].sort((a, b) => order[a.warning] - order[b.warning] || (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999));
   res.json(items);
 });

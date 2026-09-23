@@ -25,36 +25,44 @@ export async function runReminders(now: Date = new Date()) {
   const stats = { itemReminders: 0, digests: 0, managerDigests: 0 };
 
   const milestones = await prisma.milestone.findMany({
-    where: { status: { notIn: ['DONE', 'PAUSED'] }, assignee: { status: 'ACTIVE' } },
-    include: { task: { select: { id: true, code: true, title: true } } },
+    where: { status: { notIn: ['DONE', 'PAUSED'] } },
+    include: {
+      task: { select: { id: true, code: true, title: true } },
+      assignee: { select: { status: true } },
+      members: { where: { status: { notIn: ['DONE', 'PAUSED'] }, user: { status: 'ACTIVE' } }, select: { userId: true, status: true } },
+    },
   });
+  // Người cần nhắc cho từng mốc: người chủ trì + những người thực hiện (giao bổ sung) chưa xong phần của mình
+  const targets = milestones.flatMap((m) => [
+    ...(m.assigneeId && m.assignee?.status === 'ACTIVE' ? [{ m, userId: m.assigneeId, status: m.status }] : []),
+    ...m.members.map((x) => ({ m, userId: x.userId, status: x.status })),
+  ]);
 
   // 1) Nhắc theo từng mốc
-  for (const m of milestones) {
+  for (const { m, userId } of targets) {
     const d = daysUntil(m.dueDate, now);
-    if (d === null || !m.assigneeId || !config.remindDays.includes(d)) continue;
+    if (d === null || !config.remindDays.includes(d)) continue;
     const sent = await notify({
-      userId: m.assigneeId,
+      userId,
       type: 'REMINDER',
       title: d === 0 ? `Hôm nay đến hạn: ${m.task.code}` : `Còn ${d} ngày đến hạn: ${m.task.code}`,
       body: `${m.content} (hạn ${ddmm(m.dueDate)})`,
       taskId: m.task.id,
       milestoneId: m.id,
-      dedupeKey: `remind:m${m.id}:${today}`,
+      dedupeKey: `remind:m${m.id}:u${userId}:${today}`,
     });
     if (sent) stats.itemReminders++;
   }
 
   // 2) Bản tin cá nhân
   const perUser = new Map<number, { overdue: number; dueSoon: number }>();
-  for (const m of milestones) {
-    if (!m.assigneeId) continue;
-    const w = milestoneWarning(m, now);
+  for (const { m, userId, status } of targets) {
+    const w = milestoneWarning({ status, dueDate: m.dueDate }, now);
     if (w !== 'OVERDUE' && w !== 'DUE_SOON') continue;
-    const s = perUser.get(m.assigneeId) ?? { overdue: 0, dueSoon: 0 };
+    const s = perUser.get(userId) ?? { overdue: 0, dueSoon: 0 };
     if (w === 'OVERDUE') s.overdue++;
     else s.dueSoon++;
-    perUser.set(m.assigneeId, s);
+    perUser.set(userId, s);
   }
   for (const [userId, s] of perUser) {
     const parts = [];
@@ -72,13 +80,13 @@ export async function runReminders(now: Date = new Date()) {
 
   // 3) Bản tin cho lãnh đạo phòng: công việc quá hạn / sắp đến hạn trong phạm vi quản lý
   const managers = await prisma.user.findMany({ where: { status: 'ACTIVE', role: { in: ['HEAD', 'DEPUTY'] } } });
-  const tasks = await prisma.task.findMany({ include: { milestones: true } });
+  const tasks = await prisma.task.findMany({ include: { milestones: { include: { members: { select: { userId: true } } } } } });
   for (const mgr of managers) {
     const scope = mgr.role === 'HEAD' ? null : new Set([mgr.id, ...(await subordinateIds(mgr.id))]);
     let overdue = 0;
     let dueSoon = 0;
     for (const t of tasks) {
-      const inScope = !scope || scope.has(t.ownerId) || t.milestones.some((m) => m.assigneeId && scope.has(m.assigneeId));
+      const inScope = !scope || scope.has(t.ownerId) || t.milestones.some((m) => (m.assigneeId && scope.has(m.assigneeId)) || m.members.some((x) => scope.has(x.userId)));
       if (!inScope) continue;
       const st = taskState(taskProgress(t.milestones), t.dueDate, now);
       if (st === 'OVERDUE') overdue++;

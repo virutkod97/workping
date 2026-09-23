@@ -38,8 +38,13 @@ export interface Milestone {
   percent: number;
   completedAt: string | null;
   note: string | null;
-  /** Người thực hiện nằm ngoài nhóm của Phó trưởng phòng đã giao */
+  /** Người chủ trì nằm ngoài nhóm của Phó trưởng phòng đã giao */
   outOfGroup: boolean;
+  /** Chủ trì / cấp quản lý đã chủ động đánh hoàn thành */
+  doneManually: boolean;
+  /** Người thực hiện được giao bổ sung, mỗi người có tiến độ riêng */
+  members: MilestoneMember[];
+  membersDone: number;
   warning: Warning;
   warningLabel: string;
   daysLeft: number | null;
@@ -82,8 +87,23 @@ export interface TaskDetail extends Task {
   permissions: { canManage: boolean; canDelete: boolean };
 }
 
+export interface MilestoneMember {
+  id: number;
+  user: UserBrief;
+  assignedBy: UserBrief | null;
+  status: MilestoneStatus;
+  statusLabel: string;
+  percent: number;
+  completedAt: string | null;
+  note: string | null;
+  outOfGroup: boolean;
+}
+
 export interface MyWorkItem extends Milestone {
   task: { id: number; code: string; title: string; priority: Priority; owner: UserBrief };
+  /** LEAD: mình chủ trì mốc; MEMBER: mình được giao bổ sung thực hiện */
+  myRole: 'LEAD' | 'MEMBER';
+  myPart: MilestoneMember | null;
 }
 
 export interface Notification {

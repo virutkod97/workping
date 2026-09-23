@@ -10,7 +10,6 @@ import {
   canAssignTo,
   canDeleteTask,
   canManageTask,
-  canUpdateMilestoneProgress,
   canViewTask,
   taskVisibilityWhere,
 } from '../lib/permissions';
@@ -19,6 +18,8 @@ import { serializeMilestone, serializeTask, taskInclude, userBrief } from '../se
 import { nextTaskCode } from '../services/codes';
 import { notify, notifyMany } from '../services/notify';
 import { checkOutOfGroup, recordCrossGroup } from '../services/crossGroup';
+import { notifyLeadsOfDirectAssign, recomputeMilestone } from '../services/members';
+import { memberInclude } from '../services/serialize';
 
 export const tasksRouter = Router();
 export const milestonesRouter = Router();
@@ -34,6 +35,8 @@ const milestoneBody = z.object({
   unit: z.string().trim().nullable().optional(),
   seq: z.number().int().positive().optional(),
   note: z.string().nullable().optional(),
+  /** Giao cho nhiều người cùng thực hiện (mỗi người cập nhật phần của mình) */
+  memberIds: z.array(z.number().int().positive()).max(50).optional(),
 });
 
 const taskBody = z.object({
@@ -56,6 +59,8 @@ const crossGroupBody = z.object({
 });
 
 const progressBody = z.object({
+  /** member: cập nhật phần việc của mình; milestone: cập nhật cả mốc (chủ trì / cấp quản lý) */
+  scope: z.enum(['member', 'milestone']).optional(),
   status: milestoneStatus.optional(),
   percent: z.number().int().min(0).max(100).optional(),
   completedAt: dateField,
@@ -104,6 +109,72 @@ function normalizeProgress(
   if (status === 'DONE') completedAt = p.completedAt ? toDbDate(p.completedAt) : (cur.completedAt ?? toDbDate(todayStr()));
   else completedAt = null;
   return { status, percent, completedAt };
+}
+
+type TaskRef = { id: number; code: string; title: string };
+
+/**
+ * Giao bổ sung người thực hiện cho một mốc.
+ * - Bỏ qua người đã có trong mốc / chính người chủ trì.
+ * - Nếu người đang giữ mốc là nhân viên (Trưởng phòng giao thẳng) thì chuyển người đó thành 1 người thực hiện,
+ *   để mốc chỉ hoàn thành khi TẤT CẢ nhân viên xong (hoặc cấp quản lý đánh hoàn thành).
+ * - Mốc đang hoàn thành mà giao thêm người → mở lại.
+ */
+async function addMembers(
+  u: AuthUser,
+  task: TaskRef,
+  milestoneId: number,
+  userIds: number[],
+  out: Set<number>,
+  reason: string | null | undefined,
+  note?: string | null,
+) {
+  const m = await prisma.milestone.findUniqueOrThrow({ where: { id: milestoneId }, include: { members: true, assignee: true } });
+  if (m.assignee && m.assignee.role === 'STAFF' && !m.members.some((x) => x.userId === m.assigneeId)) {
+    await prisma.milestoneMember.create({
+      data: {
+        milestoneId,
+        userId: m.assignee.id,
+        assignedById: m.assignedById,
+        status: m.status,
+        percent: m.percent,
+        completedAt: m.completedAt,
+        note: m.note,
+        outOfGroup: m.outOfGroup,
+      },
+    });
+    await prisma.milestone.update({ where: { id: milestoneId }, data: { assigneeId: null } });
+    m.assigneeId = null;
+  }
+  const existing = new Set([...m.members.map((x) => x.userId), ...(m.assigneeId ? [m.assigneeId] : [])]);
+  const added = [...new Set(userIds)].filter((id) => !existing.has(id));
+  if (!added.length) return [];
+  await prisma.milestoneMember.createMany({
+    data: added.map((userId) => ({ milestoneId, userId, assignedById: u.id, outOfGroup: out.has(userId), note: note || null })),
+  });
+  if (m.status === 'DONE') {
+    await prisma.milestone.update({ where: { id: milestoneId }, data: { status: 'IN_PROGRESS', doneManually: false, completedAt: null } });
+  }
+  await recomputeMilestone(milestoneId);
+
+  const people = await prisma.user.findMany({ where: { id: { in: added } }, select: { id: true, fullName: true } });
+  const names = people.map((p) => p.fullName + (out.has(p.id) ? ' (ngoài nhóm)' : '')).join(', ');
+  await log(task.id, u.id, 'ASSIGN', `Giao bổ sung mốc ${m.seq} cho ${names}${note ? ` — ${note}` : ''}`, milestoneId);
+  for (const id of added) {
+    if (id !== u.id) {
+      await notify({
+        userId: id,
+        type: 'ASSIGNED',
+        title: `Được giao việc ${task.code}`,
+        body: `${u.fullName} giao: ${m.content}${fmtDue(dateStr(m.dueDate))}${note ? ` — ${note}` : ''}`,
+        taskId: task.id,
+        milestoneId,
+      });
+    }
+    if (out.has(id)) await recordCrossGroup(u, { kind: 'MILESTONE', task, milestone: m, assigneeId: id, reason });
+  }
+  await notifyLeadsOfDirectAssign(u, task, m.content, added, milestoneId);
+  return added;
 }
 
 // ───────────────────────── Công việc ─────────────────────────
@@ -156,8 +227,15 @@ tasksRouter.post('/', async (req, res) => {
   const body = parse(taskBody.merge(crossGroupBody), req.body);
   const ownerId = body.ownerId ?? u.id;
   await ensureAssignable(u, ownerId);
-  for (const m of body.milestones ?? []) await ensureAssignable(u, m.assigneeId);
-  const out = await checkOutOfGroup(u, [ownerId, ...(body.milestones ?? []).map((m) => m.assigneeId)], body.confirmOutOfGroup);
+  for (const m of body.milestones ?? []) {
+    await ensureAssignable(u, m.assigneeId);
+    for (const id of m.memberIds ?? []) await ensureAssignable(u, id);
+  }
+  const out = await checkOutOfGroup(
+    u,
+    [ownerId, ...(body.milestones ?? []).flatMap((m) => [m.assigneeId, ...(m.memberIds ?? [])])],
+    body.confirmOutOfGroup,
+  );
   const code = body.code || (await nextTaskCode());
   if (await prisma.task.findUnique({ where: { code } })) throw badRequest(`Mã công việc ${code} đã tồn tại`);
 
@@ -166,7 +244,7 @@ tasksRouter.post('/', async (req, res) => {
     : // Việc đơn giản không chia mốc: tạo 1 mốc mặc định giao cho người phụ trách
       [{ content: body.title, weight: 1, dueDate: body.dueDate, assigneeId: ownerId, unit: body.unit }];
 
-  const task = await prisma.task.create({
+  const created = await prisma.task.create({
     data: {
       code,
       title: body.title,
@@ -179,22 +257,27 @@ tasksRouter.post('/', async (req, res) => {
       assignerId: u.id,
       ownerId,
       ownerOutOfGroup: out.has(ownerId),
-      milestones: {
-        create: milestones.map((m, i) => ({
-          seq: 'seq' in m && m.seq ? m.seq : i + 1,
-          content: m.content,
-          weight: m.weight ?? 1,
-          dueDate: toDbDate(m.dueDate),
-          assigneeId: m.assigneeId ?? null,
-          assignedById: m.assigneeId ? u.id : null,
-          outOfGroup: !!m.assigneeId && out.has(m.assigneeId),
-          unit: m.unit || null,
-          note: 'note' in m ? (m.note ?? null) : null,
-        })),
-      },
     },
-    include: taskInclude,
   });
+  const memberPlan: { milestoneId: number; memberIds: number[] }[] = [];
+  for (const [i, m] of milestones.entries()) {
+    const row = await prisma.milestone.create({
+      data: {
+        taskId: created.id,
+        seq: 'seq' in m && m.seq ? m.seq : i + 1,
+        content: m.content,
+        weight: m.weight ?? 1,
+        dueDate: toDbDate(m.dueDate),
+        assigneeId: m.assigneeId ?? null,
+        assignedById: m.assigneeId ? u.id : null,
+        outOfGroup: !!m.assigneeId && out.has(m.assigneeId),
+        unit: m.unit || null,
+        note: 'note' in m ? (m.note ?? null) : null,
+      },
+    });
+    if ('memberIds' in m && m.memberIds?.length) memberPlan.push({ milestoneId: row.id, memberIds: m.memberIds });
+  }
+  let task = await loadTask(created.id);
   await log(task.id, u.id, 'CREATE', `Tạo công việc, giao cho ${task.owner.fullName}${task.ownerOutOfGroup ? ' (ngoài nhóm)' : ''}`);
   const reason = body.outOfGroupReason;
   if (task.ownerOutOfGroup) await recordCrossGroup(u, { kind: 'TASK_OWNER', task, assigneeId: ownerId, reason });
@@ -203,6 +286,10 @@ tasksRouter.post('/', async (req, res) => {
       if (m.outOfGroup && m.assigneeId) await recordCrossGroup(u, { kind: 'MILESTONE', task, milestone: m, assigneeId: m.assigneeId, reason });
     }
   }
+  for (const p of memberPlan) await addMembers(u, task, p.milestoneId, p.memberIds, out, reason);
+  // Trưởng phòng giao thẳng cho nhân viên → báo Phó trưởng phòng nhóm đó
+  await notifyLeadsOfDirectAssign(u, task, task.title, [ownerId, ...task.milestones.map((m) => m.assigneeId).filter((x): x is number => !!x)]);
+  if (memberPlan.length) task = await loadTask(task.id);
 
   const due = fmtDue(body.dueDate);
   if (ownerId !== u.id) {
@@ -351,7 +438,8 @@ tasksRouter.post('/:id/milestones', async (req, res) => {
   if (!(await canManageTask(u, task))) throw forbidden();
   const body = parse(milestoneBody.merge(crossGroupBody), req.body);
   await ensureAssignable(u, body.assigneeId);
-  const out = await checkOutOfGroup(u, [body.assigneeId], body.confirmOutOfGroup);
+  for (const mid of body.memberIds ?? []) await ensureAssignable(u, mid);
+  const out = await checkOutOfGroup(u, [body.assigneeId, ...(body.memberIds ?? [])], body.confirmOutOfGroup);
   const seq = body.seq ?? Math.max(0, ...task.milestones.map((m) => m.seq)) + 1;
   const m = await prisma.milestone.create({
     data: {
@@ -382,7 +470,13 @@ tasksRouter.post('/:id/milestones', async (req, res) => {
       milestoneId: m.id,
     });
   }
-  res.status(201).json(serializeMilestone(m));
+  if (m.assigneeId) await notifyLeadsOfDirectAssign(u, task, m.content, [m.assigneeId], m.id);
+  if (body.memberIds?.length) await addMembers(u, task, m.id, body.memberIds, out, body.outOfGroupReason);
+  const fresh = await prisma.milestone.findUniqueOrThrow({
+    where: { id: m.id },
+    include: { assignee: userBrief, assignedBy: userBrief, members: memberInclude },
+  });
+  res.status(201).json(serializeMilestone(fresh));
 });
 
 // ───────────────────────── Mốc công việc ─────────────────────────
@@ -390,7 +484,7 @@ tasksRouter.post('/:id/milestones', async (req, res) => {
 async function loadMilestone(id: number) {
   const m = await prisma.milestone.findUnique({
     where: { id },
-    include: { task: { include: taskInclude }, assignee: userBrief, assignedBy: userBrief },
+    include: { task: { include: taskInclude }, assignee: userBrief, assignedBy: userBrief, members: memberInclude },
   });
   if (!m) throw notFound('Không tìm thấy mốc công việc');
   return m;
@@ -401,12 +495,14 @@ async function afterProgressChange(
   before: { status: MilestoneStatus },
   milestoneId: number,
   taskId: number,
+  /** true: đã báo riêng (vd người thực hiện xong phần mình) — không báo trùng việc đổi trạng thái mốc */
+  quiet = false,
 ) {
   const task = await loadTask(taskId);
   const m = task.milestones.find((x) => x.id === milestoneId)!;
   if (before.status !== m.status) {
     await log(taskId, u.id, 'STATUS', `Mốc ${m.seq}: ${MILESTONE_STATUS_LABEL[before.status]} → ${MILESTONE_STATUS_LABEL[m.status]}`, m.id);
-    await notifyMany([task.ownerId, task.assignerId, m.assigneeId, m.assignedById], u.id, {
+    if (!quiet) await notifyMany([task.ownerId, task.assignerId, m.assigneeId, m.assignedById], u.id, {
       type: 'STATUS',
       title: `${task.code}: mốc ${m.seq} ${MILESTONE_STATUS_LABEL[m.status].toLowerCase()}`,
       body: `${u.fullName} cập nhật: ${m.content}`,
@@ -434,7 +530,12 @@ milestonesRouter.put('/:id', async (req, res) => {
   const reassigned = body.assigneeId !== undefined && body.assigneeId !== m.assigneeId;
   if (reassigned) await ensureAssignable(u, body.assigneeId);
   const out = reassigned ? await checkOutOfGroup(u, [body.assigneeId], body.confirmOutOfGroup) : new Set<number>();
-  const prog = normalizeProgress(m, body);
+  // Mốc có nhiều người thực hiện: % tính từ người thực hiện; "Hoàn thành" ở đây = chủ trì xác nhận hoàn thành
+  let prog: Record<string, unknown>;
+  if (!m.members.length) prog = normalizeProgress(m, body);
+  else if (body.status === undefined || body.status === m.status) prog = {};
+  else if (body.status === 'DONE') prog = { status: 'DONE', percent: 100, doneManually: true, completedAt: m.completedAt ?? toDbDate(todayStr()) };
+  else prog = { status: body.status, doneManually: false, completedAt: null };
   await prisma.milestone.update({
     where: { id },
     data: {
@@ -450,6 +551,7 @@ milestonesRouter.put('/:id', async (req, res) => {
       ...prog,
     },
   });
+  if (m.members.length) await recomputeMilestone(id);
   const task = await afterProgressChange(u, m, id, m.taskId);
   const updated = task.milestones.find((x) => x.id === id)!;
   if (reassigned && updated.assigneeId) {
@@ -483,67 +585,113 @@ milestonesRouter.put('/:id', async (req, res) => {
   res.json(serializeMilestone(updated));
 });
 
+/** Người chủ trì mốc (chưa phải nhân viên) hoặc cấp quản lý công việc được giao bổ sung */
+async function canAddMembers(u: AuthUser, m: Awaited<ReturnType<typeof loadMilestone>>) {
+  if (u.role === 'STAFF') return false;
+  return m.assigneeId === u.id || (await canManageTask(u, m.task));
+}
+
 /**
- * Giao tiếp: người đang được giao mốc (vd Phó trưởng phòng) chuyển mốc xuống nhân viên.
- * Không cần quyền quản lý cả công việc — chỉ cần đang là người thực hiện mốc.
+ * Giao bổ sung: Phó trưởng phòng (người chủ trì mốc) hoặc Trưởng phòng giao mốc cho NHIỀU nhân viên cùng thực hiện.
+ * Mốc hoàn thành khi tất cả người thực hiện xong, hoặc khi chủ trì / cấp quản lý đánh hoàn thành.
  */
-milestonesRouter.post('/:id/delegate', async (req, res) => {
+milestonesRouter.post('/:id/members', async (req, res) => {
   const u = me(req);
   const id = parse(idParam, req.params.id);
   const body = parse(
-    z.object({ assigneeId: z.number().int().positive(), dueDate: dateField, note: z.string().nullable().optional() }).merge(crossGroupBody),
+    z
+      .object({
+        userIds: z.array(z.number().int().positive()).min(1, 'chọn ít nhất 1 người').max(50),
+        dueDate: dateField,
+        note: z.string().nullable().optional(),
+      })
+      .merge(crossGroupBody),
     req.body,
   );
   const m = await loadMilestone(id);
-  if (u.role === 'STAFF') throw forbidden('Nhân viên không giao tiếp việc cho người khác');
-  if (m.assigneeId !== u.id && !(await canManageTask(u, m.task))) throw forbidden('Bạn không phải người đang thực hiện mốc này');
-  if (body.assigneeId === m.assigneeId) throw badRequest('Mốc đã được giao cho người này');
-  await ensureAssignable(u, body.assigneeId);
-  const out = await checkOutOfGroup(u, [body.assigneeId], body.confirmOutOfGroup);
-  await prisma.milestone.update({
-    where: { id },
-    data: {
-      assigneeId: body.assigneeId,
-      assignedById: u.id,
-      outOfGroup: out.has(body.assigneeId),
-      ...(body.dueDate !== undefined ? { dueDate: toDbDate(body.dueDate) } : {}),
-      ...(body.note ? { note: body.note } : {}),
-    },
-  });
+  if (!(await canAddMembers(u, m))) throw forbidden('Chỉ người chủ trì mốc hoặc cấp quản lý được giao bổ sung');
+  for (const uid of body.userIds) await ensureAssignable(u, uid);
+  const out = await checkOutOfGroup(u, body.userIds, body.confirmOutOfGroup);
+  if (body.dueDate !== undefined) await prisma.milestone.update({ where: { id }, data: { dueDate: toDbDate(body.dueDate) } });
+  const added = await addMembers(u, m.task, id, body.userIds, out, body.outOfGroupReason, body.note);
+  if (!added.length) throw badRequest('Những người này đã được giao mốc này');
   const task = await loadTask(m.taskId);
-  const updated = task.milestones.find((x) => x.id === id)!;
-  await log(
-    task.id,
-    u.id,
-    'ASSIGN',
-    `Giao tiếp mốc ${updated.seq}: ${m.assignee?.fullName ?? 'chưa giao'} → ${updated.assignee?.fullName}${updated.outOfGroup ? ' (ngoài nhóm)' : ''}${body.note ? ` — ${body.note}` : ''}`,
-    id,
-  );
-  await notify({
-    userId: body.assigneeId,
-    type: 'ASSIGNED',
-    title: `Được giao mốc việc ${task.code}`,
-    body: `${u.fullName} giao: ${updated.content}${fmtDue(dateStr(updated.dueDate))}`,
-    taskId: task.id,
-    milestoneId: id,
-  });
-  if (updated.outOfGroup) {
-    await recordCrossGroup(u, { kind: 'MILESTONE', task, milestone: updated, assigneeId: body.assigneeId, reason: body.outOfGroupReason });
-  }
-  res.json(serializeMilestone(updated));
+  res.json(serializeMilestone(task.milestones.find((x) => x.id === id)!));
 });
 
-/** Người thực hiện cập nhật tiến độ mốc của mình */
+/** Bỏ một người thực hiện khỏi mốc */
+milestonesRouter.delete('/:id/members/:userId', async (req, res) => {
+  const u = me(req);
+  const id = parse(idParam, req.params.id);
+  const userId = parse(idParam, req.params.userId);
+  const m = await loadMilestone(id);
+  if (!(await canAddMembers(u, m))) throw forbidden();
+  const member = m.members.find((x) => x.userId === userId);
+  if (!member) throw notFound('Người này không thực hiện mốc');
+  await prisma.milestoneMember.delete({ where: { id: member.id } });
+  await recomputeMilestone(id);
+  await log(m.taskId, u.id, 'ASSIGN', `Bỏ ${member.user.fullName} khỏi mốc ${m.seq}`, id);
+  const task = await afterProgressChange(u, m, id, m.taskId);
+  res.json(serializeMilestone(task.milestones.find((x) => x.id === id)!));
+});
+
+/**
+ * Cập nhật tiến độ:
+ *  - người thực hiện (giao bổ sung) → cập nhật phần của mình; tất cả xong thì mốc tự hoàn thành;
+ *  - người chủ trì / cấp quản lý → cập nhật cả mốc; đánh "Hoàn thành" là tính hoàn thành luôn.
+ */
 milestonesRouter.patch('/:id/progress', async (req, res) => {
   const u = me(req);
   const id = parse(idParam, req.params.id);
   const m = await loadMilestone(id);
-  if (!(await canUpdateMilestoneProgress(u, m.task, m))) throw forbidden('Bạn không được giao mốc này');
   const body = parse(progressBody, req.body);
-  const prog = normalizeProgress(m, body);
-  await prisma.milestone.update({ where: { id }, data: { ...prog, note: body.note } });
-  if (body.note && body.note !== m.note) await log(m.taskId, u.id, 'UPDATE', `Ghi chú mốc ${m.seq}: ${body.note}`, id);
-  const task = await afterProgressChange(u, m, id, m.taskId);
+  const member = m.members.find((x) => x.userId === u.id);
+  // Nhân viên đang là người thực hiện chỉ cập nhật phần của mình (kể cả khi là người phụ trách chung),
+  // cả mốc chỉ do người chủ trì / cấp quản lý (không phải nhân viên thực hiện) đánh hoàn thành
+  const lead = (m.assigneeId === u.id || (await canManageTask(u, m.task))) && !(member && u.role === 'STAFF');
+  const scope = body.scope ?? (member && !lead ? 'member' : 'milestone');
+
+  if (scope === 'member') {
+    if (!member) throw forbidden('Bạn không được giao mốc này');
+    const prog = normalizeProgress(member, body);
+    await prisma.milestoneMember.update({ where: { id: member.id }, data: { ...prog, note: body.note } });
+    if (prog.status !== member.status) {
+      const doneCount = m.members.filter((x) => (x.id === member.id ? prog.status : x.status) === 'DONE').length;
+      await log(m.taskId, u.id, 'STATUS', `Mốc ${m.seq} – phần của ${u.fullName}: ${MILESTONE_STATUS_LABEL[member.status]} → ${MILESTONE_STATUS_LABEL[prog.status]} (${doneCount}/${m.members.length} người xong)`, id);
+      await notifyMany([m.assigneeId, member.assignedById, m.task.ownerId], u.id, {
+        type: 'STATUS',
+        title: `${m.task.code}: ${u.fullName} ${MILESTONE_STATUS_LABEL[prog.status].toLowerCase()} (${doneCount}/${m.members.length})`,
+        body: m.content,
+        taskId: m.taskId,
+        milestoneId: id,
+      });
+    } else if (body.note && body.note !== member.note) {
+      await log(m.taskId, u.id, 'UPDATE', `Ghi chú mốc ${m.seq}: ${body.note}`, id);
+    }
+    await recomputeMilestone(id);
+  } else {
+    if (!lead) throw forbidden(member ? 'Bạn chỉ cập nhật được phần việc của mình' : 'Bạn không được giao mốc này');
+    if (m.members.length) {
+      // Mốc có nhiều người thực hiện: chủ trì chỉ đổi trạng thái chung, % tính từ các người thực hiện
+      const status = body.status ?? m.status;
+      if (status === 'DONE') {
+        await prisma.milestone.update({
+          where: { id },
+          data: { status: 'DONE', percent: 100, doneManually: true, completedAt: body.completedAt ? toDbDate(body.completedAt) : (m.completedAt ?? toDbDate(todayStr())), note: body.note },
+        });
+        const left = m.members.filter((x) => x.status !== 'DONE').length;
+        if (left) await log(m.taskId, u.id, 'STATUS', `Mốc ${m.seq}: ${u.fullName} xác nhận hoàn thành (còn ${left}/${m.members.length} người chưa đánh dấu xong)`, id);
+      } else {
+        await prisma.milestone.update({ where: { id }, data: { status, doneManually: false, completedAt: null, note: body.note } });
+        await recomputeMilestone(id);
+      }
+    } else {
+      const prog = normalizeProgress(m, body);
+      await prisma.milestone.update({ where: { id }, data: { ...prog, note: body.note } });
+    }
+    if (body.note && body.note !== m.note) await log(m.taskId, u.id, 'UPDATE', `Ghi chú mốc ${m.seq}: ${body.note}`, id);
+  }
+  const task = await afterProgressChange(u, m, id, m.taskId, scope === 'member');
   res.json(serializeMilestone(task.milestones.find((x) => x.id === id)!));
 });
 

@@ -79,8 +79,11 @@ export async function taskVisibilityWhere(u: AuthUser): Promise<Prisma.TaskWhere
       { ownerId: { in: ids } },
       { assignerId: { in: ids } },
       { milestones: { some: { assigneeId: { in: ids } } } },
-      // Việc mình đã giao tiếp cho người khác (kể cả ngoài nhóm) vẫn theo dõi được
+      // Được giao bổ sung (người thực hiện) — kể cả nhân viên nhóm mình
+      { milestones: { some: { members: { some: { userId: { in: ids } } } } } },
+      // Việc mình đã giao/giao bổ sung cho người khác (kể cả ngoài nhóm) vẫn theo dõi được
       { milestones: { some: { assignedById: u.id } } },
+      { milestones: { some: { members: { some: { assignedById: u.id } } } } },
     ],
   };
 }
@@ -111,8 +114,9 @@ export async function canDeleteTask(u: AuthUser, task: Pick<Task, 'ownerId' | 'a
 export async function canUpdateMilestoneProgress(
   u: AuthUser,
   task: Pick<Task, 'ownerId' | 'assignerId'>,
-  m: Pick<Milestone, 'assigneeId'>,
+  m: Pick<Milestone, 'assigneeId'> & { members?: { userId: number }[] },
 ): Promise<boolean> {
   if (m.assigneeId === u.id) return true;
+  if (m.members?.some((x) => x.userId === u.id)) return true;
   return canManageTask(u, task);
 }

@@ -84,7 +84,8 @@ export async function exportWorkbook(tasks: TaskDto[]): Promise<Buffer> {
     { header: 'Nội dung mốc', width: 60 },
     { header: 'Trọng số', width: 8 },
     { header: 'Hạn hoàn thành', width: 12, style: { numFmt: 'dd/mm/yyyy' } },
-    { header: 'Người chịu trách nhiệm', width: 20 },
+    { header: 'Người chủ trì', width: 20 },
+    { header: 'Người thực hiện (giao bổ sung)', width: 32 },
     { header: 'Người giao', width: 20 },
     { header: 'Đơn vị', width: 12 },
     { header: 'Trạng thái', width: 15 },
@@ -97,11 +98,13 @@ export async function exportWorkbook(tasks: TaskDto[]): Promise<Buffer> {
   for (const t of tasks) {
     for (const m of t.milestones) {
       const row = mc.addRow([
-        t.code, m.seq, m.content, m.weight, d(m.dueDate), m.assignee?.fullName, m.assignedBy?.fullName, m.unit,
+        t.code, m.seq, m.content, m.weight, d(m.dueDate), m.assignee?.fullName,
+        m.members.map((x) => `${x.user.fullName} (${x.status === 'DONE' ? 'xong' : `${x.percent}%`})`).join(', '),
+        m.assignedBy?.fullName, m.unit,
         m.statusLabel, d(m.completedAt), m.percent / 100, m.daysLeft, m.warningLabel, m.note,
       ]);
       row.alignment = { vertical: 'top', wrapText: true };
-      fill(row.getCell(13), m.warning);
+      fill(row.getCell(14), m.warning);
     }
   }
   styleHeader(mc);
@@ -122,7 +125,8 @@ export async function exportWorkbook(tasks: TaskDto[]): Promise<Buffer> {
     .filter(({ m }) => m.status !== 'DONE')
     .sort((a, b) => (a.m.daysLeft ?? 99999) - (b.m.daysLeft ?? 99999));
   for (const { t, m } of open) {
-    const row = todo.addRow([t.code, m.seq, m.content, d(m.dueDate), m.assignee?.fullName, m.statusLabel, m.daysLeft, m.warningLabel]);
+    const people = [m.assignee?.fullName, ...m.members.filter((x) => x.status !== 'DONE').map((x) => x.user.fullName)].filter(Boolean).join(', ');
+    const row = todo.addRow([t.code, m.seq, m.content, d(m.dueDate), people, m.statusLabel, m.daysLeft, m.warningLabel]);
     row.alignment = { vertical: 'top', wrapText: true };
     fill(row.getCell(8), m.warning);
   }

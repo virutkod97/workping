@@ -181,7 +181,7 @@ function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: U
           <Form.Item
             name="role"
             label="Cấp (quyền giao việc)"
-            tooltip="Trưởng phòng: giao việc cho cả phòng. Phó trưởng phòng: giao/giao tiếp cho nhân viên nhóm mình. Nhân viên: chỉ nhận việc. Tự chọn theo chức danh."
+            tooltip="Trưởng phòng: giao việc cho cả phòng. Phó trưởng phòng: giao bổ sung cho nhân viên nhóm mình và xác nhận hoàn thành. Nhân viên: chỉ nhận việc. Tự chọn theo chức danh."
             rules={[{ required: true }]}
             style={{ flex: 1, minWidth: 180 }}
           >

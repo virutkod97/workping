@@ -50,7 +50,16 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
         dueDate: toStr(v.dueDate as Dayjs),
         milestones: task
           ? undefined
-          : ((v.milestones as Record<string, unknown>[] | undefined) ?? []).map((m) => ({ ...m, dueDate: toStr(m.dueDate as Dayjs) })),
+          : ((v.milestones as Record<string, unknown>[] | undefined) ?? []).map(({ people, ...m }) => {
+              // 1 người → người thực hiện mốc; nhiều người → giao bổ sung (tất cả xong thì mốc xong)
+              const ids = (people as number[] | undefined) ?? [];
+              return {
+                ...m,
+                dueDate: toStr(m.dueDate as Dayjs),
+                assigneeId: ids.length === 1 ? ids[0] : null,
+                memberIds: ids.length > 1 ? ids : undefined,
+              };
+            }),
       };
       return guard((extra) => (task ? api.put<Task>(`/tasks/${task.id}`, { ...body, ...extra }) : api.post<Task>('/tasks', { ...body, ...extra })));
     },
@@ -116,7 +125,7 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
                     <div style={{ display: 'flex', gap: 8, fontSize: 12, color: '#888', marginBottom: 4, flexWrap: 'wrap' }}>
                       <span style={{ width: 20 }} />
                       <span style={{ flex: 3, minWidth: 200 }}>Nội dung mốc</span>
-                      <span style={{ flex: 2, minWidth: 180 }}>Người thực hiện</span>
+                      <span style={{ flex: 2, minWidth: 180 }}>Người thực hiện (chọn được nhiều người)</span>
                       <span style={{ width: 140 }}>Hạn</span>
                       <span style={{ width: 80 }} title="Mốc quan trọng hơn thì đặt trọng số lớn hơn; % tiến độ công việc = Σ(trọng số × % mốc) / Σ trọng số">
                         Trọng số ⓘ
@@ -130,8 +139,8 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
                       <Form.Item name={[name, 'content']} rules={[{ required: true, message: 'Nhập nội dung' }]} style={{ flex: 3, minWidth: 200 }}>
                         <Input placeholder="Nội dung mốc" />
                       </Form.Item>
-                      <Form.Item name={[name, 'assigneeId']} style={{ flex: 2, minWidth: 180 }}>
-                        <AssigneeSelect allowClear placeholder="Người thực hiện" />
+                      <Form.Item name={[name, 'people']} style={{ flex: 2, minWidth: 180 }}>
+                        <AssigneeSelect multiple placeholder="Người thực hiện" />
                       </Form.Item>
                       <Form.Item name={[name, 'dueDate']} style={{ width: 140 }}>
                         <DatePicker format="DD/MM/YYYY" placeholder="Hạn" style={{ width: '100%' }} />

@@ -1,4 +1,4 @@
-import type { Milestone, Prisma, Task, User } from '@prisma/client';
+import type { Milestone, MilestoneMember, Prisma, Task, User } from '@prisma/client';
 import { dateStr, daysUntil } from '../lib/dates';
 import {
   MILESTONE_STATUS_LABEL,
@@ -14,7 +14,13 @@ import {
 export const userBrief = { select: { id: true, code: true, fullName: true, title: true, role: true, team: true } } as const;
 type Brief = Pick<User, 'id' | 'code' | 'fullName' | 'title' | 'role' | 'team'>;
 
-export type MilestoneRow = Milestone & { assignee?: Brief | null; assignedBy?: Brief | null };
+export type MemberRow = MilestoneMember & { user: Brief; assignedBy?: Brief | null };
+export type MilestoneRow = Milestone & { assignee?: Brief | null; assignedBy?: Brief | null; members?: MemberRow[] };
+
+export const memberInclude = {
+  orderBy: { id: 'asc' as const },
+  include: { user: userBrief, assignedBy: userBrief },
+} satisfies Prisma.Milestone$membersArgs;
 export type TaskRow = Task & { owner: Brief; assigner: Brief; milestones: MilestoneRow[] };
 
 export const taskInclude = {
@@ -22,7 +28,7 @@ export const taskInclude = {
   assigner: userBrief,
   milestones: {
     orderBy: [{ seq: 'asc' as const }, { id: 'asc' as const }],
-    include: { assignee: userBrief, assignedBy: userBrief },
+    include: { assignee: userBrief, assignedBy: userBrief, members: memberInclude },
   },
 } satisfies Prisma.TaskInclude;
 
@@ -44,6 +50,20 @@ export function serializeMilestone(m: MilestoneRow, now = new Date()) {
     completedAt: dateStr(m.completedAt),
     note: m.note,
     outOfGroup: m.outOfGroup,
+    doneManually: m.doneManually,
+    /** Người thực hiện được giao bổ sung — mỗi người có tiến độ riêng */
+    members: (m.members ?? []).map((x) => ({
+      id: x.id,
+      user: x.user,
+      assignedBy: x.assignedBy ?? null,
+      status: x.status,
+      statusLabel: MILESTONE_STATUS_LABEL[x.status],
+      percent: x.status === 'DONE' ? 100 : x.percent,
+      completedAt: dateStr(x.completedAt),
+      note: x.note,
+      outOfGroup: x.outOfGroup,
+    })),
+    membersDone: (m.members ?? []).filter((x) => x.status === 'DONE').length,
     warning,
     warningLabel: WARNING_LABEL[warning],
     daysLeft: m.status === 'DONE' ? null : daysUntil(m.dueDate, now),

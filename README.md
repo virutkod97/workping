@@ -37,20 +37,35 @@ Công thức giữ nguyên như Excel:
 | Cấp | Xem | Giao việc cho | Quản lý công việc |
 |---|---|---|---|
 | **Quản trị / Trưởng phòng** | Toàn phòng | Bất kỳ ai (không bị giới hạn nhóm) | Mọi công việc; quản lý nhân sự, danh mục, nhập/xuất Excel |
-| **Phó trưởng phòng** | Việc của mình, của nhóm mình và việc mình đã giao đi | Bản thân, nhân sự **trong nhóm**; nhân viên **nhóm khác** (có cảnh báo) | Việc được giao/đã giao hoặc của nhóm mình: sửa, chia mốc, giao mốc, **giao tiếp** |
-| **Nhân viên** | Việc mình tham gia | Chỉ bản thân (tự tạo việc riêng) | Cập nhật tiến độ, ghi chú các mốc được giao; bình luận |
+| **Phó trưởng phòng** | Việc của mình, của nhóm mình và việc mình đã giao đi | Bản thân, nhân sự **trong nhóm**; nhân viên **nhóm khác** (có cảnh báo) | Việc được giao/đã giao hoặc của nhóm mình: sửa, chia mốc, **giao bổ sung**, xác nhận hoàn thành |
+| **Nhân viên** | Việc mình tham gia | Chỉ bản thân (tự tạo việc riêng) | Cập nhật tiến độ **phần việc của mình**; bình luận |
 
-**Nhóm của Phó trưởng phòng** = các nhân sự có *Nhóm / quản lý trực tiếp* là Phó trưởng phòng đó (trang Nhân sự → Sơ đồ nhóm).
+**Nhóm của Phó trưởng phòng** = các nhân sự có *Nhóm / quản lý trực tiếp* là Phó trưởng phòng đó (trang Nhân sự → Sơ đồ nhóm). **Cấp** tự đặt theo **Chức danh** (Trưởng phòng / Phó trưởng phòng / còn lại là Nhân viên).
 
-Luồng điển hình:
+### Giao bổ sung — nhiều người cùng thực hiện một mốc
 
-1. **Trưởng phòng** tạo công việc (vd theo văn bản đến) → giao **Phó trưởng phòng** phụ trách chung (hoặc giao mốc cho PTP).
-2. **Phó trưởng phòng** nhận thông báo → *Việc của tôi* → nút **Giao tiếp** trên từng mốc để chuyển xuống nhân viên (kèm hạn và chỉ đạo), hoặc *Thêm mốc / giao việc* để chia nhỏ công việc.
-3. **Nhân viên** nhận push → *Việc của tôi* → cập nhật trạng thái/%/ghi chú.
-4. Người giao & người phụ trách nhận thông báo mỗi lần đổi trạng thái; khi mọi mốc xong, Trưởng phòng nhận “Hoàn thành công việc”.
+Mỗi mốc có **người chủ trì** (vd Phó trưởng phòng được Trưởng phòng giao) và có thể có **nhiều người thực hiện**:
 
-**Giao việc ngoài nhóm**: trong ô chọn người, nhân sự ngoài nhóm có nhãn **Ngoài nhóm**. Nếu Phó trưởng phòng vẫn chọn, hệ thống hiện cảnh báo và hỏi lý do; xác nhận thì vẫn giao được, đồng thời:
-- đánh dấu “Ngoài nhóm” trên mốc/công việc;
+1. **Trưởng phòng** tạo công việc → giao **Phó trưởng phòng** (người chủ trì mốc).
+2. **Phó trưởng phòng** nhận thông báo → *Việc của tôi* → **Giao bổ sung** → chọn **một hoặc nhiều nhân viên**, hạn, chỉ đạo. Phó trưởng phòng vẫn giữ vai trò chủ trì.
+3. Mỗi **nhân viên** mở *Việc của tôi* → **Cập nhật phần của tôi** (trạng thái, %, ghi chú). % mốc = trung bình % của những người thực hiện.
+4. Mốc **hoàn thành** khi:
+   - **tất cả** người thực hiện đánh dấu xong → tự hoàn thành, báo người chủ trì; **hoặc**
+   - **người chủ trì / cấp quản lý** bấm **Cập nhật cả mốc → Hoàn thành** (dù còn người chưa xong — lịch sử ghi rõ “còn x/y người chưa xong”).
+
+   Nhân viên chỉ đánh dấu được phần của mình, không đóng được cả mốc. Giao bổ sung thêm người vào mốc đã xong thì mốc mở lại.
+5. Công việc hoàn thành khi mọi mốc hoàn thành → Trưởng phòng nhận thông báo.
+
+**Trưởng phòng giao trực tiếp cho nhân viên** (không qua Phó trưởng phòng):
+- Khi tạo công việc/mốc, ô *Người thực hiện* chọn được nhiều người; hoặc bấm **Giao bổ sung** trên mốc bất kỳ. Không bị cảnh báo nhóm.
+- **Phó trưởng phòng phụ trách nhóm** của từng nhân viên nhận thông báo “… giao trực tiếp cho nhân viên nhóm bạn” và xem được công việc để nắm khối lượng việc của nhóm.
+- Mốc hoàn thành khi tất cả nhân viên xong, hoặc Trưởng phòng / cấp quản lý đánh hoàn thành.
+- Mốc đang giao thẳng cho 1 nhân viên mà giao bổ sung thêm người → nhân viên cũ trở thành 1 người thực hiện (giữ nguyên tiến độ), cần tất cả cùng xong.
+
+Nhắc việc hằng ngày gửi cho người chủ trì **và từng người thực hiện chưa xong phần của mình**.
+
+**Giao việc ngoài nhóm**: trong ô chọn người, nhân sự ngoài nhóm có nhãn **Ngoài nhóm**. Nếu Phó trưởng phòng vẫn chọn (kể cả khi giao bổ sung), hệ thống hiện cảnh báo và hỏi lý do; xác nhận thì vẫn giao được, đồng thời:
+- đánh dấu “Ngoài nhóm” trên người thực hiện/mốc/công việc;
 - ghi vào bảng `CrossGroupAssignment` (người giao, người nhận, nhóm của người nhận, công việc, mốc, lý do, thời điểm);
 - báo cho Phó trưởng phòng đang quản lý nhân sự đó.
 
@@ -131,10 +146,10 @@ Cách khác – Docker: `cp .env.example .env` rồi `docker compose up -d --bui
 | GET/POST/PUT/DELETE | `/api/users` | Nhân sự (`/assignable`: người mình được giao việc, kèm `inGroup`) |
 | GET/POST/PUT/DELETE | `/api/tasks` | Công việc (lọc `scope`, `state`, `ownerId`, `groupName`, `priority`, `q`) |
 | POST | `/api/tasks/:id/milestones` | Thêm mốc / giao mốc |
-| POST | `/api/milestones/:id/delegate` | Giao tiếp mốc xuống nhân viên |
+| POST / DELETE | `/api/milestones/:id/members` (`/:userId`) | Giao bổ sung / bỏ người thực hiện |
 | GET | `/api/reports/cross-group` (`/export`) | Báo cáo giao việc ngoài nhóm (lọc `from`, `to`, `assignerId`) |
 | PUT/DELETE | `/api/milestones/:id` | Sửa / xoá mốc |
-| PATCH | `/api/milestones/:id/progress` | Cập nhật tiến độ mốc (người thực hiện) |
+| PATCH | `/api/milestones/:id/progress` | Cập nhật tiến độ (`scope`: `member` = phần của mình, `milestone` = cả mốc) |
 | POST | `/api/tasks/:id/comments` | Bình luận |
 | GET | `/api/dashboard`, `/api/dashboard/my-work` | Tổng quan, việc của tôi |
 | GET/POST | `/api/notifications…` | Thông báo, đánh dấu đã đọc |
