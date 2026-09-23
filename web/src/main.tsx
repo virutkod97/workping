@@ -8,8 +8,10 @@ import dayjs from 'dayjs';
 import 'dayjs/locale/vi';
 import { AuthProvider } from './auth';
 import App from './App';
+import { registerServiceWorker } from './push';
 
 dayjs.locale('vi');
+registerServiceWorker();
 const qc = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: true, retry: 1, staleTime: 10_000 } } });
 
 createRoot(document.getElementById('root')!).render(

@@ -176,14 +176,9 @@ describe('nhắc việc tự động', () => {
   });
 });
 
-describe('thông báo & thiết bị', () => {
-  it('đăng ký FCM token, đọc thông báo', async () => {
+describe('thông báo trong ứng dụng', () => {
+  it('đếm & đánh dấu đã đọc', async () => {
     const { head, depA } = await org();
-    expect((await as(depA).post('/api/devices', { token: 'fcm-token-abcdefghijkl', platform: 'ios' })).status).toBe(200);
-    // token chuyển sang tài khoản khác khi đăng nhập trên cùng máy
-    await as(head).post('/api/devices', { token: 'fcm-token-abcdefghijkl', platform: 'ios' });
-    expect(await prisma.deviceToken.count({ where: { userId: head.id } })).toBe(1);
-
     await as(head).post('/api/tasks', { title: 'A', ownerId: depA.id });
     expect((await as(depA).get('/api/notifications/unread-count')).body.count).toBe(1);
     await as(depA).post('/api/notifications/read-all');

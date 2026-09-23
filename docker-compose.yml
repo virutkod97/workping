@@ -29,10 +29,7 @@ services:
       REMINDER_CRON: ${REMINDER_CRON:-0 8 * * 1-6}
       WARN_DAYS: ${WARN_DAYS:-3}
       REMIND_DAYS: ${REMIND_DAYS:-3,1,0}
-      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase.json
-    volumes:
-      # Đặt file service account tải từ Firebase Console tại ./secrets/firebase-service-account.json
-      - ./secrets/firebase-service-account.json:/run/secrets/firebase.json:ro
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
 
 volumes:
   pgdata:

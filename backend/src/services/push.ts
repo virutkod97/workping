@@ -1,75 +1,76 @@
-import fs from 'node:fs';
-import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
-import { getMessaging } from 'firebase-admin/messaging';
+import webpush, { WebPushError } from 'web-push';
 import { config } from '../config';
 import { prisma } from '../lib/prisma';
 
-let app: App | null | undefined;
-
-function firebaseApp(): App | null {
-  if (app !== undefined) return app;
-  try {
-    let json: string | null = null;
-    if (config.firebaseServiceAccountBase64) {
-      json = Buffer.from(config.firebaseServiceAccountBase64, 'base64').toString('utf8');
-    } else if (config.firebaseServiceAccountPath && fs.existsSync(config.firebaseServiceAccountPath)) {
-      json = fs.readFileSync(config.firebaseServiceAccountPath, 'utf8');
-    }
-    if (!json) {
-      console.warn('[push] Chưa cấu hình Firebase service account — chỉ lưu thông báo trong ứng dụng.');
-      app = null;
-      return app;
-    }
-    app = getApps()[0] ?? initializeApp({ credential: cert(JSON.parse(json)) });
-    console.log('[push] Firebase Admin đã khởi tạo');
-  } catch (e) {
-    console.error('[push] Lỗi khởi tạo Firebase:', e);
-    app = null;
-  }
-  return app;
+/**
+ * Thông báo đẩy theo chuẩn Web Push (VAPID) — không cần Firebase hay tài khoản Apple/Google Developer.
+ * Hoạt động với: Safari iOS/iPadOS 16.4+ (web đã "Thêm vào Màn hình chính"), Chrome/Edge Android,
+ * trình duyệt máy tính. Yêu cầu trang web chạy HTTPS.
+ */
+interface Vapid {
+  publicKey: string;
+  privateKey: string;
 }
 
-export function pushEnabled() {
-  return firebaseApp() !== null;
+let vapid: Vapid | null = null;
+
+/** Khoá VAPID: lấy từ biến môi trường, nếu không có thì sinh 1 lần và lưu trong CSDL */
+export async function getVapid(): Promise<Vapid> {
+  if (vapid) return vapid;
+  if (config.vapidPublicKey && config.vapidPrivateKey) {
+    vapid = { publicKey: config.vapidPublicKey, privateKey: config.vapidPrivateKey };
+  } else {
+    const row = await prisma.appSetting.findUnique({ where: { key: 'vapid' } });
+    if (row) vapid = JSON.parse(row.value) as Vapid;
+    else {
+      const keys = webpush.generateVAPIDKeys();
+      // createMany + skipDuplicates: an toàn khi nhiều tiến trình khởi động cùng lúc
+      await prisma.appSetting.createMany({ data: [{ key: 'vapid', value: JSON.stringify(keys) }], skipDuplicates: true });
+      vapid = JSON.parse((await prisma.appSetting.findUniqueOrThrow({ where: { key: 'vapid' } })).value) as Vapid;
+      console.log('[push] Đã sinh khoá VAPID mới');
+    }
+  }
+  webpush.setVapidDetails(config.vapidSubject, vapid.publicKey, vapid.privateKey);
+  return vapid;
 }
 
 export interface PushPayload {
   title: string;
   body: string;
-  data?: Record<string, string>;
+  /** Trang mở ra khi bấm thông báo */
+  url?: string;
+  /** Thông báo cùng tag sẽ thay thế nhau thay vì chồng lên */
+  tag?: string;
+  /** Số hiển thị trên biểu tượng ứng dụng (số thông báo chưa đọc) */
   badge?: number;
 }
 
-const INVALID_TOKEN_CODES = new Set([
-  'messaging/registration-token-not-registered',
-  'messaging/invalid-registration-token',
-  'messaging/invalid-argument',
-]);
-
-/** Gửi push FCM tới mọi thiết bị của user (Android + iOS qua APNs) */
+/** Gửi tới mọi trình duyệt/thiết bị user đã bật thông báo. Trả về số lần gửi thành công. */
 export async function sendPushToUser(userId: number, p: PushPayload): Promise<number> {
-  const fb = firebaseApp();
-  if (!fb) return 0;
-  const devices = await prisma.deviceToken.findMany({ where: { userId }, select: { token: true } });
-  if (!devices.length) return 0;
-  const tokens = devices.map((d) => d.token);
-  const res = await getMessaging(fb).sendEachForMulticast({
-    tokens,
-    notification: { title: p.title, body: p.body },
-    data: p.data,
-    android: {
-      priority: 'high',
-      notification: { sound: 'default' },
-    },
-    apns: {
-      headers: { 'apns-priority': '10' },
-      payload: { aps: { sound: 'default', badge: p.badge } },
-    },
-  });
-  const invalid: string[] = [];
-  res.responses.forEach((r, i) => {
-    if (!r.success && r.error && INVALID_TOKEN_CODES.has(r.error.code)) invalid.push(tokens[i]);
-  });
-  if (invalid.length) await prisma.deviceToken.deleteMany({ where: { token: { in: invalid } } });
-  return res.successCount;
+  const subs = await prisma.webPushSubscription.findMany({ where: { userId } });
+  if (!subs.length) return 0;
+  await getVapid();
+  const payload = JSON.stringify(p);
+  let ok = 0;
+  await Promise.all(
+    subs.map(async (s) => {
+      try {
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, {
+          TTL: 24 * 3600,
+          urgency: 'high',
+          timeout: 15_000,
+          ...(config.pushProxy ? { proxy: config.pushProxy } : {}),
+        });
+        ok++;
+      } catch (e) {
+        // 404/410: người dùng đã gỡ ứng dụng / thu hồi quyền → xoá đăng ký
+        if (e instanceof WebPushError && (e.statusCode === 404 || e.statusCode === 410)) {
+          await prisma.webPushSubscription.deleteMany({ where: { endpoint: s.endpoint } });
+        } else {
+          console.error('[push] gửi thất bại', s.endpoint.slice(0, 60), e instanceof WebPushError ? `${e.statusCode} ${e.body}` : e);
+        }
+      }
+    }),
+  );
+  return ok;
 }

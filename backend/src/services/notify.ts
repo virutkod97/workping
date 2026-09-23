@@ -32,10 +32,8 @@ export async function notify(n: NotifyInput): Promise<boolean> {
     throw e;
   }
   const badge = await prisma.notification.count({ where: { userId: n.userId, readAt: null } });
-  const data: Record<string, string> = { type: n.type };
-  if (n.taskId) data.taskId = String(n.taskId);
-  if (n.milestoneId) data.milestoneId = String(n.milestoneId);
-  sendPushToUser(n.userId, { title: n.title, body: n.body, data, badge }).catch((e) =>
+  const url = n.taskId ? `/tasks/${n.taskId}` : n.type === 'DIGEST' || n.type === 'REMINDER' ? '/my-work' : '/notifications';
+  sendPushToUser(n.userId, { title: n.title, body: n.body, url, badge, tag: n.dedupeKey ?? undefined }).catch((e) =>
     console.error('[push] gửi thất bại', e),
   );
   return true;

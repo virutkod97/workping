@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, setUnauthorizedHandler, tokenStore } from './api';
+import { disablePush, syncPush } from './push';
 import type { User } from './types';
 
 interface AuthCtx {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<User>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refresh: () => Promise<void>;
   isManager: boolean; // Trưởng phòng / quản trị
   canAssign: boolean; // Trưởng phòng / Phó phòng / quản trị
@@ -18,26 +19,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(!!tokenStore.get());
 
-  const logout = useCallback(() => {
+  const clear = useCallback(() => {
     tokenStore.set(null);
     setUser(null);
   }, []);
+
+  /** Đăng xuất: gỡ thiết bị khỏi danh sách nhận thông báo của tài khoản rồi mới xoá phiên */
+  const logout = useCallback(async () => {
+    await disablePush();
+    clear();
+  }, [clear]);
 
   const refresh = useCallback(async () => {
     if (!tokenStore.get()) return;
     try {
       setUser(await api.get<User>('/auth/me'));
     } catch {
-      logout();
+      clear();
     } finally {
       setLoading(false);
     }
-  }, [logout]);
+  }, [clear]);
 
   useEffect(() => {
-    setUnauthorizedHandler(logout);
+    setUnauthorizedHandler(clear);
     void refresh();
-  }, [logout, refresh]);
+  }, [clear, refresh]);
+
+  // Mỗi lần có người đăng nhập: đồng bộ đăng ký thông báo của thiết bị (nếu đã cho phép)
+  useEffect(() => {
+    if (user?.id) void syncPush();
+  }, [user?.id]);
 
   const login = useCallback(async (username: string, password: string) => {
     const r = await api.post<{ token: string; user: User }>('/auth/login', { username, password });

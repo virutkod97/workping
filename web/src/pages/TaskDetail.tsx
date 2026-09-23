@@ -1,4 +1,4 @@
-import { App, Button, Card, Descriptions, Empty, Input, List, Popconfirm, Space, Table, Tag, Typography } from 'antd';
+import { App, Button, Card, Descriptions, Empty, Grid, Input, List, Popconfirm, Space, Table, Tag, Typography } from 'antd';
 import { ArrowLeftOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -21,6 +21,7 @@ export default function TaskDetail() {
   const nav = useNavigate();
   const { user } = useAuth();
   const { message } = App.useApp();
+  const screens = Grid.useBreakpoint();
   const qc = useQueryClient();
   const [editTask, setEditTask] = useState(false);
   const [msForm, setMsForm] = useState<{ open: boolean; m?: Milestone | null }>({ open: false });
@@ -56,6 +57,27 @@ export default function TaskDetail() {
   if (error) return <Empty description={(error as Error).message} />;
   if (isLoading || !t) return <Card loading />;
   const canManage = t.permissions.canManage;
+
+  const actions = (m: Milestone) => (
+    <Space size={4} wrap>
+      {user?.role !== 'STAFF' && m.status !== 'DONE' && (m.assignee?.id === user?.id || canManage) && (
+        <Button size="small" onClick={() => setDelegate(m)}>
+          Giao tiếp
+        </Button>
+      )}
+      {(canManage || m.assignee?.id === user?.id) && (
+        <Button size="small" type={m.assignee?.id === user?.id ? 'primary' : 'default'} onClick={() => setProgress(m)}>
+          Cập nhật
+        </Button>
+      )}
+      {canManage && <Button size="small" icon={<EditOutlined />} onClick={() => setMsForm({ open: true, m })} />}
+      {canManage && (
+        <Popconfirm title="Xoá mốc này?" onConfirm={() => delMs.mutate(m.id)}>
+          <Button size="small" danger icon={<DeleteOutlined />} />
+        </Popconfirm>
+      )}
+    </Space>
+  );
 
   return (
     <>
@@ -112,6 +134,29 @@ export default function TaskDetail() {
         title={`Mốc công việc (${t.milestoneDone}/${t.milestoneCount})`}
         extra={canManage && <Button type="primary" icon={<PlusOutlined />} onClick={() => setMsForm({ open: true })}>Thêm mốc / giao việc</Button>}
       >
+        {!screens.md ? (
+          <List
+            dataSource={t.milestones}
+            locale={{ emptyText: 'Chưa có mốc' }}
+            renderItem={(m) => (
+              <List.Item style={{ display: 'block' }}>
+                <Space size={4} wrap>
+                  <b>#{m.seq}</b>
+                  <WarningTag warning={m.warning} />
+                  <MilestoneStatusTag s={m.status} />
+                  {m.outOfGroup && <OutOfGroupTag />}
+                </Space>
+                <div style={{ margin: '6px 0', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                  👤 {m.assignee?.fullName ?? 'Chưa giao'} · Hạn {fmtDate(m.dueDate) || '—'} · {m.percent}% ·{' '}
+                  <DaysLeft days={m.daysLeft} done={m.status === 'DONE'} />
+                </Typography.Text>
+                {m.note && <div style={{ fontSize: 12, color: '#888' }}>📝 {m.note}</div>}
+                <div style={{ marginTop: 8 }}>{actions(m)}</div>
+              </List.Item>
+            )}
+          />
+        ) : (
         <Table
           rowKey="id"
           size="small"
@@ -155,29 +200,11 @@ export default function TaskDetail() {
               title: '',
               width: 250,
               fixed: 'right',
-              render: (_, m) => (
-                <Space size={4} wrap>
-                  {user?.role !== 'STAFF' && m.status !== 'DONE' && (m.assignee?.id === user?.id || canManage) && (
-                    <Button size="small" onClick={() => setDelegate(m)}>
-                      Giao tiếp
-                    </Button>
-                  )}
-                  {(canManage || m.assignee?.id === user?.id) && (
-                    <Button size="small" type={m.assignee?.id === user?.id ? 'primary' : 'default'} onClick={() => setProgress(m)}>
-                      Cập nhật
-                    </Button>
-                  )}
-                  {canManage && <Button size="small" icon={<EditOutlined />} onClick={() => setMsForm({ open: true, m })} />}
-                  {canManage && (
-                    <Popconfirm title="Xoá mốc này?" onConfirm={() => delMs.mutate(m.id)}>
-                      <Button size="small" danger icon={<DeleteOutlined />} />
-                    </Popconfirm>
-                  )}
-                </Space>
-              ),
+              render: (_, m) => actions(m),
             },
           ]}
         />
+        )}
       </Card>
 
       <Card size="small" style={{ marginTop: 12 }} title="Trao đổi & lịch sử">

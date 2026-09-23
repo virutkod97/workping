@@ -17,7 +17,12 @@ export const config = {
     .filter((n) => Number.isFinite(n)),
   reminderCron: process.env.REMINDER_CRON || '0 8 * * 1-6',
   defaultPassword: process.env.DEFAULT_PASSWORD || '123456',
-  firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || '',
-  firebaseServiceAccountBase64: process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 || '',
+  // Web Push (VAPID). Để trống → hệ thống tự sinh và lưu trong CSDL.
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
+  // Liên hệ quản trị gửi kèm cho dịch vụ push (Apple yêu cầu mailto: hoặc https: hợp lệ)
+  vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
+  // Máy chủ ra Internet qua proxy: vd http://proxy.congty.vn:8080
+  pushProxy: process.env.PUSH_PROXY || '',
   disableScheduler: process.env.DISABLE_SCHEDULER === '1',
 };

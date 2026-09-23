@@ -4,19 +4,18 @@ Phần mềm thay thế file Excel **“Công cụ Quản lý Tiến độ VT&CN
 
 - **Quản lý nhân sự** (hồ sơ, bộ phận, quản lý trực tiếp, tài khoản đăng nhập, sơ đồ phân cấp).
 - **Giao việc 3 cấp**: Trưởng phòng → Phó phòng → Nhân viên.
-- **Nhắc việc tự động** và **thông báo đẩy (push) qua Firebase Cloud Messaging** tới app mobile **Android & iOS**.
+- **Nhắc việc tự động** và **thông báo đẩy** tới điện thoại **Android & iOS** — dạng ứng dụng web (PWA) “Thêm vào Màn hình chính” từ Chrome/Safari, **không cần** tài khoản Apple/Google Developer hay Firebase.
 
 ```
-backend/   API Node.js + TypeScript + PostgreSQL (Prisma), Firebase Admin, lịch nhắc việc
-web/       Ứng dụng web (React + Ant Design) cho máy tính — thay các sheet Excel
-mobile/    App điện thoại (Expo / React Native) — Android + iOS, nhận push FCM
+backend/   API Node.js + TypeScript + PostgreSQL (Prisma), Web Push, lịch nhắc việc
+web/       Ứng dụng web (React + Ant Design) — dùng trên máy tính và cài lên điện thoại (PWA)
 ```
 
 ## 1. Tương ứng với file Excel cũ
 
 | Sheet Excel | Trong phần mềm |
 |---|---|
-| `DASHBOARD` | Trang **Tổng quan** (web + mobile): số công việc/mốc theo tình trạng, việc cần chú ý, thống kê theo nhân sự & nhóm |
+| `DASHBOARD` | Trang **Tổng quan**: số công việc/mốc theo tình trạng, việc cần chú ý, thống kê theo nhân sự & nhóm |
 | `CONG_VIEC` | **Công việc**: Mã CV (tự sinh CV001…), nhóm, đơn vị, người giao, người phụ trách chung, ưu tiên, ngày bắt đầu, hạn cuối, % tiến độ, tình trạng, số ngày còn, ghi chú |
 | `MOC_CONG_VIEC` | **Mốc công việc** trong từng công việc: STT, nội dung, trọng số, hạn, người chịu trách nhiệm, trạng thái, % mốc, ngày hoàn thành, cảnh báo |
 | `VIEC_CAN_XU_LY` | **Việc của tôi**: các mốc được giao cho mình, sắp xếp quá hạn → sắp đến hạn |
@@ -61,7 +60,7 @@ Mọi thao tác được ghi vào **lịch sử** của công việc; có thể 
 
 ## 3. Thông báo & nhắc việc
 
-Gửi push (Firebase) + lưu vào hộp *Thông báo* trong app:
+Gửi thông báo đẩy (Web Push) tới các thiết bị đã bật + lưu vào hộp *Thông báo* trong app:
 
 - Được giao việc / giao mốc, đổi người phụ trách, đổi hạn.
 - Mốc đổi trạng thái, công việc hoàn thành, bình luận mới.
@@ -94,34 +93,37 @@ npm run dev                   # http://localhost:5173
 
 Kiểm thử backend: `cd backend && npm test` (cần DB `workping_test`, xem `backend/vitest.config.mts`).
 
-## 5. Cấu hình Firebase (push cho Android & iOS)
+## 5. Ứng dụng trên điện thoại (PWA) & thông báo đẩy
 
-1. Tạo project tại <https://console.firebase.google.com>.
-2. **Server**: *Project settings → Service accounts → Generate new private key* → lưu thành `backend/firebase-service-account.json` (hoặc đặt nội dung base64 vào `FIREBASE_SERVICE_ACCOUNT_BASE64`). Kiểm tra: `GET /api/health` trả `"push": true`.
-3. **Android**: thêm app Android package `vn.com.npc.workping` → tải `google-services.json` → đặt vào `mobile/firebase/`.
-4. **iOS**: thêm app iOS bundle `vn.com.npc.workping` → tải `GoogleService-Info.plist` → đặt vào `mobile/firebase/`. Tạo **APNs Auth Key (.p8)** trên Apple Developer và tải lên *Project settings → Cloud Messaging → Apple app configuration*.
-5. Đổi `bundleIdentifier`/`package` trong `mobile/app.json` nếu dùng định danh khác (phải khớp với Firebase).
+Không cần tài khoản nhà phát triển: mỗi người mở trang web trên điện thoại rồi thêm vào màn hình chính — biểu tượng WorkPing chạy toàn màn hình như ứng dụng và nhận thông báo đẩy.
 
-Các file khoá Firebase đã được `.gitignore`, **không commit**.
+| | iPhone / iPad | Android |
+|---|---|---|
+| Yêu cầu | iOS/iPadOS **16.4+**, dùng **Safari** | **Chrome** (hoặc Edge, Samsung Internet) |
+| Cài | Safari → nút **Chia sẻ** → **Thêm vào MH chính** | Chrome → menu **⋮** → **Thêm vào màn hình chính / Cài đặt ứng dụng** (hoặc nút *Cài ứng dụng* trong WorkPing) |
+| Bật thông báo | **Mở từ biểu tượng** trên màn hình chính → đăng nhập → *Cài app & thông báo* → **Bật thông báo** → Cho phép | Đăng nhập → *Cài app & thông báo* → **Bật thông báo** → Cho phép |
+
+Trong app có trang **Cài app & thông báo** tự nhận biết thiết bị và hướng dẫn từng bước, nút **Gửi thông báo thử**. Bấm vào thông báo sẽ mở đúng công việc; số thông báo chưa đọc hiện trên biểu tượng (nếu máy hỗ trợ).
+
+Điều kiện phía máy chủ:
+
+- **Bắt buộc HTTPS** với chứng chỉ hợp lệ (script cài đặt tự lấy Let's Encrypt khi có `--domain` + `--email`). Truy cập bằng `http://IP` sẽ không bật được thông báo.
+- Máy chủ phải **ra được Internet** tới dịch vụ push của trình duyệt: `web.push.apple.com` (iPhone), `fcm.googleapis.com` (Chrome), `updates.push.services.mozilla.com` (Firefox) — cổng 443.
+- Khoá VAPID tự sinh lần đầu và lưu trong CSDL; `VAPID_SUBJECT` là email quản trị (lấy từ `--email`).
 
 ## 6. Triển khai
 
 **Khuyến nghị – chạy dạng service trên Ubuntu (1 lệnh):**
 
 ```bash
-sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn \
-  --firebase ~/firebase-service-account.json
+sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn
 ```
 
 Hướng dẫn chi tiết từng bước, nâng cấp, sao lưu/khôi phục, xử lý sự cố: [`deploy/README.md`](deploy/README.md).
 
-Cách khác – Docker: `cp .env.example .env`, đặt khoá Firebase vào `secrets/firebase-service-account.json`, rồi `docker compose up -d --build`.
+Cách khác – Docker: `cp .env.example .env` rồi `docker compose up -d --build` (tự đặt reverse proxy HTTPS phía trước).
 
-## 7. App mobile
-
-Xem [`mobile/README.md`](mobile/README.md): build Android (APK/AAB) & iOS bằng EAS hoặc Android Studio/Xcode.
-
-## 8. API chính
+## 7. API chính
 
 | Phương thức | Đường dẫn | Mô tả |
 |---|---|---|
@@ -136,6 +138,7 @@ Xem [`mobile/README.md`](mobile/README.md): build Android (APK/AAB) & iOS bằng
 | POST | `/api/tasks/:id/comments` | Bình luận |
 | GET | `/api/dashboard`, `/api/dashboard/my-work` | Tổng quan, việc của tôi |
 | GET/POST | `/api/notifications…` | Thông báo, đánh dấu đã đọc |
-| POST/DELETE | `/api/devices` | Đăng ký / huỷ FCM token của thiết bị |
+| GET | `/api/push/public-key` | Khoá VAPID công khai |
+| POST | `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test` | Bật / tắt / gửi thử thông báo đẩy trên thiết bị |
 | GET | `/api/excel/export` | Xuất báo cáo Excel |
 | POST | `/api/admin/run-reminders` | Chạy nhắc việc ngay |

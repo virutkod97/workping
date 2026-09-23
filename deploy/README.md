@@ -5,8 +5,8 @@ Script `install.sh` tự làm toàn bộ: cài PostgreSQL, Node.js 22, nginx; t�
 Kiến trúc sau khi cài:
 
 ```
-Trình duyệt / App mobile ──HTTPS──▶ nginx :80/:443 ──▶ workping (Node.js, 127.0.0.1:4000) ──▶ PostgreSQL :5432
-                                                          └─ gửi push ──▶ Firebase ──▶ Android / iOS
+Trình duyệt / app trên MH chính ──HTTPS──▶ nginx :80/:443 ──▶ workping (Node.js, 127.0.0.1:4000) ──▶ PostgreSQL :5432
+                                                                  └─ Web Push ──▶ Apple / Google push ──▶ iPhone / Android
 ```
 
 | Thành phần | Vị trí |
@@ -14,7 +14,6 @@ Trình duyệt / App mobile ──HTTPS──▶ nginx :80/:443 ──▶ workpi
 | Mã chương trình | `/opt/workping` |
 | Cấu hình (mật khẩu CSDL, JWT, lịch nhắc…) | `/etc/workping/workping.env` |
 | Mật khẩu admin ban đầu | `/etc/workping/admin-credentials.txt` |
-| Khoá Firebase | `/etc/workping/firebase-service-account.json` |
 | Dịch vụ | `/etc/systemd/system/workping.service` |
 | Nginx | `/etc/nginx/sites-available/workping` |
 | Sao lưu CSDL (1h sáng, giữ 14 ngày) | `/var/backups/workping/` |
@@ -45,27 +44,18 @@ ssh user@IP_MAY_CHU
 sudo apt-get install -y unzip && unzip workping.zip && cd workping*
 ```
 
-## Bước 2 – Chép các file cần thiết (tuỳ chọn, có thể làm sau)
+## Bước 2 – Chạy cài đặt (1 lệnh)
+
+**Khuyến nghị – có tên miền + HTTPS** (bắt buộc để điện thoại nhận thông báo đẩy; chứng chỉ Let's Encrypt tự gia hạn):
 
 ```bash
-# Khoá Firebase để gửi push (Firebase Console → Project settings → Service accounts → Generate new private key)
-scp firebase-service-account.json user@IP_MAY_CHU:~
+sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn
 ```
 
-## Bước 3 – Chạy cài đặt (1 lệnh)
-
-Chỉ dùng trong mạng nội bộ, truy cập bằng IP:
+Chỉ thử nghiệm trong mạng nội bộ bằng IP (dùng được web, **không** có thông báo đẩy trên điện thoại):
 
 ```bash
-sudo bash deploy/install.sh --firebase ~/firebase-service-account.json
-```
-
-Có tên miền + HTTPS tự động (Let's Encrypt, tự gia hạn):
-
-```bash
-sudo bash deploy/install.sh \
-  --domain workping.congty.vn --email it@congty.vn \
-  --firebase ~/firebase-service-account.json
+sudo bash deploy/install.sh
 ```
 
 Tất cả tuỳ chọn:
@@ -73,8 +63,7 @@ Tất cả tuỳ chọn:
 | Tuỳ chọn | Ý nghĩa |
 |---|---|
 | `--domain <tên-miền>` | Tên miền của hệ thống |
-| `--email <email>` | Kèm `--domain` để bật HTTPS |
-| `--firebase <file.json>` | Khoá service account Firebase (push) |
+| `--email <email>` | Kèm `--domain` để bật HTTPS; cũng dùng làm liên hệ cho dịch vụ Web Push |
 | `--port <số>` | Cổng nội bộ của API (mặc định 4000) |
 | `--no-nginx` | Không cài nginx (khi đã có reverse proxy khác) |
 
@@ -83,20 +72,21 @@ Mất khoảng 3–5 phút. Cuối cùng script in ra:
 ```
 ══════════════════ HOÀN TẤT ══════════════════
   Địa chỉ web     : https://workping.congty.vn
-  API cho app     : https://workping.congty.vn/api
   Tài khoản quản trị WorkPing
     Tên đăng nhập: admin
     Mật khẩu: xxxxxxxxxxxx
 ```
 
-## Bước 4 – Sau khi cài
+## Bước 3 – Sau khi cài
 
 1. Mở địa chỉ web, đăng nhập `admin` với mật khẩu ở trên → hệ thống bắt đổi mật khẩu.
 2. **Cấu hình** → kiểm tra danh mục *Nhóm công việc* và *Bộ phận*.
 3. **Nhân sự → Thêm nhân sự**: tạo Trưởng phòng, các Phó trưởng phòng, rồi nhân viên — chọn **Cấp** và **Nhóm / quản lý trực tiếp** (nhân viên thuộc nhóm Phó trưởng phòng nào). Kiểm tra ở *Sơ đồ nhóm*.
 4. Báo cho mọi người: đăng nhập bằng **mã nhân sự viết thường** (vd `ns002`), mật khẩu mặc định `123456`, lần đầu phải đổi.
-5. Trên app mobile: *Cấu hình máy chủ* = `https://workping.congty.vn/api` (hoặc build app với `EXPO_PUBLIC_API_URL` này).
-6. Kiểm tra push: app → **Cá nhân → Gửi thông báo thử**. Kiểm tra máy chủ: `curl -s http://127.0.0.1:4000/api/health` phải có `"push":true`.
+5. **Cài lên điện thoại** (mỗi người tự làm, không cần tài khoản nhà phát triển):
+   - **iPhone** (iOS 16.4+): mở `https://workping.congty.vn` bằng **Safari** → nút **Chia sẻ** → **Thêm vào MH chính** → mở WorkPing **từ biểu tượng** → đăng nhập → **Cài app & thông báo** → **Bật thông báo** → *Cho phép*.
+   - **Android**: mở bằng **Chrome** → menu **⋮** → **Thêm vào màn hình chính** (hoặc nút *Cài ứng dụng*) → đăng nhập → **Cài app & thông báo** → **Bật thông báo** → *Cho phép*.
+6. Kiểm tra: trang **Cài app & thông báo** → **Gửi thông báo thử** — điện thoại phải hiện thông báo (kể cả khi đã đóng ứng dụng).
 
 ---
 
@@ -120,12 +110,6 @@ REMIND_DAYS=3,1,0             # nhắc riêng từng mốc khi còn 3, 1, 0 ngà
 DEFAULT_PASSWORD=123456       # mật khẩu khi tạo nhân sự mới / đặt lại
 ```
 
-Thêm/đổi khoá Firebase sau khi đã cài:
-
-```bash
-sudo install -o root -g workping -m 640 ~/firebase-service-account.json /etc/workping/firebase-service-account.json
-sudo systemctl restart workping
-```
 
 ## Nâng cấp phiên bản mới
 
@@ -155,7 +139,9 @@ sudo bash deploy/restore.sh /var/backups/workping/workping-20260923-010000.dump
 | Script báo lỗi giữa chừng | Sửa theo thông báo rồi chạy lại **đúng lệnh cũ** — script chạy lại an toàn |
 | Web báo 502 Bad Gateway | `sudo systemctl status workping` và `sudo journalctl -u workping -n 100` |
 | Không lấy được chứng chỉ HTTPS | Kiểm tra tên miền trỏ đúng IP (`dig +short tên-miền`), mở cổng 80/443, chạy lại script |
-| Không nhận push | Log có `[push] Chưa cấu hình Firebase` → thêm khoá; điện thoại phải cho phép thông báo; iOS cần APNs key trên Firebase |
+| Không có nút *Bật thông báo* | Phải truy cập bằng **https://** (không phải http://IP). iPhone: phải mở từ biểu tượng trên màn hình chính, iOS ≥ 16.4 |
+| Bật rồi nhưng không nhận push | Bấm *Gửi thông báo thử*; xem log `sudo journalctl -u workping | grep push`. Máy chủ phải ra được Internet tới `web.push.apple.com`, `fcm.googleapis.com` (cổng 443) — nếu đi qua proxy, thêm `PUSH_PROXY=http://proxy:port` vào `/etc/workping/workping.env` rồi restart |
+| iPhone lâu lâu không nhận | Kiểm tra *Cài đặt → Thông báo → WorkPing*; chế độ Tập trung/Không làm phiền có thể chặn |
 | Quên mật khẩu admin | `sudo cat /etc/workping/admin-credentials.txt` (mật khẩu ban đầu), hoặc Trưởng phòng/Admin khác đặt lại ở trang Nhân sự |
 | Đổi cổng 4000 bị trùng | `sudo bash deploy/install.sh --port 4100` |
 
@@ -187,7 +173,7 @@ sudo -u postgres psql -c "create role workping login password 'MAT_KHAU_CSDL'"
 sudo -u postgres psql -c "create database workping owner workping"
 
 # 3. Mã nguồn & build
-sudo mkdir -p /opt/workping && sudo rsync -a --exclude node_modules --exclude .git --exclude mobile ./ /opt/workping/
+sudo mkdir -p /opt/workping && sudo rsync -a --exclude node_modules --exclude .git ./ /opt/workping/
 sudo chown -R workping:workping /opt/workping
 cd /opt/workping/web     && sudo -u workping -H npm ci && sudo -u workping -H npm run build
 cd /opt/workping/backend && sudo -u workping -H npm ci && sudo -u workping -H npm run build
@@ -195,7 +181,7 @@ cd /opt/workping/backend && sudo -u workping -H npm ci && sudo -u workping -H np
 # 4. Cấu hình: tạo /etc/workping/workping.env theo mẫu backend/.env.example, thêm:
 #    NODE_ENV=production
 #    WEB_DIST=/opt/workping/web/dist
-#    FIREBASE_SERVICE_ACCOUNT_PATH=/etc/workping/firebase-service-account.json
+#    VAPID_SUBJECT=mailto:it@congty.vn
 sudo chown root:workping /etc/workping/workping.env && sudo chmod 640 /etc/workping/workping.env
 
 # 5. Tạo bảng + tài khoản admin

@@ -20,7 +20,6 @@ BACKUP_DIR=/var/backups/workping
 PORT=4000
 DOMAIN=""
 EMAIL=""
-FIREBASE_KEY=""
 NODE_MAJOR=22
 TZ_NAME="Asia/Ho_Chi_Minh"
 SKIP_NGINX=0
@@ -31,7 +30,6 @@ Cách dùng: sudo bash deploy/install.sh [tuỳ chọn]
 
   --domain <tên-miền>     Tên miền trỏ về máy chủ (bật HTTPS nếu có --email)
   --email <email>         Email đăng ký chứng chỉ Let's Encrypt
-  --firebase <file.json>  File service account Firebase (để gửi push lên điện thoại)
   --port <số>             Cổng nội bộ của API (mặc định 4000)
   --no-nginx              Không cài/cấu hình nginx (tự dùng reverse proxy khác)
   -h, --help              Hiện hướng dẫn này
@@ -42,7 +40,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="$2"; shift 2 ;;
     --email) EMAIL="$2"; shift 2 ;;
-    --firebase) FIREBASE_KEY="$2"; shift 2 ;;
+    --firebase) warn "Không còn dùng Firebase (thông báo đẩy dùng Web Push) — bỏ qua $2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --no-nginx) SKIP_NGINX=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -70,9 +68,10 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "$SRC_DIR/backend/package.json" && -f "$SRC_DIR/web/package.json" ]] || die "Không thấy mã nguồn tại $SRC_DIR"
 . /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || warn "Script được viết cho Ubuntu, hệ điều hành hiện tại: ${PRETTY_NAME:-?}"
-[[ -z "$FIREBASE_KEY" || -f "$FIREBASE_KEY" ]] || die "Không thấy file Firebase: $FIREBASE_KEY"
-[[ -n "$FIREBASE_KEY" ]] && FIREBASE_KEY="$(realpath "$FIREBASE_KEY")"
 FIRST_INSTALL=0; [[ -f "$ENV_FILE" ]] || FIRST_INSTALL=1
+if [[ -n "$EMAIL" ]]; then VAPID_SUBJECT="mailto:$EMAIL"
+elif [[ -n "$DOMAIN" ]] && ! is_ip "$DOMAIN"; then VAPID_SUBJECT="https://$DOMAIN"
+else VAPID_SUBJECT="mailto:admin@example.com"; fi
 
 echo "${C_B}WorkPing — $([[ $FIRST_INSTALL == 1 ]] && echo 'CÀI ĐẶT MỚI' || echo 'NÂNG CẤP')${C_0}"
 echo "  Mã nguồn : $SRC_DIR"
@@ -165,7 +164,8 @@ DEFAULT_PASSWORD=123456
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=$ADMIN_PASS
 WEB_DIST=$APP_DIR/web/dist
-FIREBASE_SERVICE_ACCOUNT_PATH=$CONF_DIR/firebase-service-account.json
+# Thông báo đẩy Web Push: liên hệ quản trị (Apple yêu cầu mailto:/https: hợp lệ). Khoá VAPID tự sinh & lưu trong CSDL.
+VAPID_SUBJECT=$VAPID_SUBJECT
 ENV
   umask 022
   chown root:"$APP_USER" "$ENV_FILE"; chmod 640 "$ENV_FILE"
@@ -178,9 +178,10 @@ else
   ok "Giữ nguyên cấu hình hiện có"
 fi
 PORT=$(grep -E '^PORT=' "$ENV_FILE" | cut -d= -f2)
-if [[ -n "$FIREBASE_KEY" ]]; then
-  install -o root -g "$APP_USER" -m 640 "$FIREBASE_KEY" "$CONF_DIR/firebase-service-account.json"
-  ok "Đã cài khoá Firebase"
+# Cập nhật liên hệ Web Push khi có email mới
+if [[ -n "$EMAIL" ]]; then
+  if grep -q '^VAPID_SUBJECT=' "$ENV_FILE"; then sed -i "s#^VAPID_SUBJECT=.*#VAPID_SUBJECT=mailto:$EMAIL#" "$ENV_FILE"
+  else echo "VAPID_SUBJECT=mailto:$EMAIL" >> "$ENV_FILE"; fi
 fi
 
 # ------------------------------ 6. Mã nguồn & build ------------------------------
@@ -260,4 +261,8 @@ echo "  Cấu hình        : $ENV_FILE"
 echo "  Trạng thái      : sudo systemctl status $APP_NAME"
 echo "  Xem log         : sudo journalctl -u $APP_NAME -f"
 echo "  Sao lưu         : $BACKUP_DIR (tự động 1h sáng hằng ngày)"
-[[ -f "$CONF_DIR/firebase-service-account.json" ]] || echo "  ${C_WARN}Push Firebase   : CHƯA cấu hình — chạy lại với --firebase <file.json>${C_0}"
+if [[ "$URL" != https://* ]]; then
+  echo
+  echo "  ${C_WARN}${C_B}Lưu ý: điện thoại chỉ nhận thông báo đẩy khi truy cập bằng HTTPS.${C_0}"
+  echo "  ${C_WARN}Chạy lại với --domain <tên-miền> --email <email> để bật HTTPS (tên miền phải trỏ về máy chủ).${C_0}"
+fi

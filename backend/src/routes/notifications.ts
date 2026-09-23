@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { me } from '../lib/auth';
 import { idParam, parse } from '../lib/validate';
+import { getVapid, sendPushToUser } from '../services/push';
 
 export const notificationsRouter = Router();
 
@@ -34,23 +35,45 @@ notificationsRouter.post('/:id/read', async (req, res) => {
   res.json({ ok: true });
 });
 
-export const devicesRouter = Router();
+export const pushRouter = Router();
 
-/** App mobile đăng ký FCM token sau khi đăng nhập / khi token đổi */
-devicesRouter.post('/', async (req, res) => {
-  const body = parse(z.object({ token: z.string().min(10), platform: z.enum(['android', 'ios', 'web']) }), req.body);
+/** Khoá công khai VAPID để trình duyệt tạo đăng ký nhận push */
+pushRouter.get('/public-key', async (_req, res) => {
+  res.json({ publicKey: (await getVapid()).publicKey });
+});
+
+const subscriptionBody = z.object({
+  subscription: z.object({
+    endpoint: z.string().url(),
+    keys: z.object({ p256dh: z.string().min(10), auth: z.string().min(4) }),
+  }),
+  userAgent: z.string().max(500).optional(),
+});
+
+/** Trình duyệt/thiết bị bật thông báo (gọi lại mỗi lần mở app để cập nhật) */
+pushRouter.post('/subscribe', async (req, res) => {
+  const { subscription: s, userAgent } = parse(subscriptionBody, req.body);
   const userId = me(req).id;
-  await prisma.deviceToken.upsert({
-    where: { token: body.token },
-    create: { token: body.token, platform: body.platform, userId },
-    update: { platform: body.platform, userId },
+  // Cùng 1 thiết bị đăng nhập tài khoản khác → chuyển đăng ký sang tài khoản mới
+  await prisma.webPushSubscription.upsert({
+    where: { endpoint: s.endpoint },
+    create: { endpoint: s.endpoint, p256dh: s.keys.p256dh, auth: s.keys.auth, userAgent, userId },
+    update: { p256dh: s.keys.p256dh, auth: s.keys.auth, userAgent, userId },
   });
   res.json({ ok: true });
 });
 
-/** Gọi khi đăng xuất để thiết bị không nhận thông báo của tài khoản cũ */
-devicesRouter.delete('/', async (req, res) => {
-  const body = parse(z.object({ token: z.string().min(10) }), req.body);
-  await prisma.deviceToken.deleteMany({ where: { token: body.token, userId: me(req).id } });
+/** Gọi khi đăng xuất hoặc tắt thông báo trên thiết bị */
+pushRouter.post('/unsubscribe', async (req, res) => {
+  const body = parse(z.object({ endpoint: z.string().url() }), req.body);
+  await prisma.webPushSubscription.deleteMany({ where: { endpoint: body.endpoint, userId: me(req).id } });
   res.json({ ok: true });
+});
+
+/** Gửi thử tới mọi thiết bị của chính mình */
+pushRouter.post('/test', async (req, res) => {
+  const userId = me(req).id;
+  const devices = await prisma.webPushSubscription.count({ where: { userId } });
+  const sent = await sendPushToUser(userId, { title: 'WorkPing', body: 'Thông báo thử nghiệm thành công 🎉', url: '/notifications', tag: 'test' });
+  res.json({ devices, sent });
 });

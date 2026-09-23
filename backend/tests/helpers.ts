@@ -11,7 +11,7 @@ export { prisma };
 
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE "Notification","DeviceToken","Activity","Milestone","Task","Category","User" RESTART IDENTITY CASCADE',
+    'TRUNCATE "Notification","WebPushSubscription","CrossGroupAssignment","Activity","Milestone","Task","Category","User" RESTART IDENTITY CASCADE',
   );
 }
 

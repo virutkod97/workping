@@ -1,4 +1,4 @@
-import { Button, Card, Input, Segmented, Select, Space, Table, Typography } from 'antd';
+import { Button, Card, Grid, Input, List, Segmented, Select, Space, Table, Typography } from 'antd';
 import { DownloadOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -14,6 +14,7 @@ import { TaskFormModal } from '../components/TaskFormModal';
 export default function Tasks() {
   const { canAssign } = useAuth();
   const nav = useNavigate();
+  const screens = Grid.useBreakpoint();
   const [f, setF] = useState<{ q?: string; state?: string; ownerId?: number; groupName?: string; priority?: string; scope: string }>({ scope: 'all' });
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ['tasks', f], queryFn: () => api.get<Task[]>(`/tasks${qs(f)}`) });
@@ -81,6 +82,28 @@ export default function Tasks() {
             options={[{ value: 'HIGH', label: 'Cao' }, { value: 'MEDIUM', label: 'Trung bình' }, { value: 'LOW', label: 'Thấp' }]}
           />
         </Space>
+        {!screens.md ? (
+          <List
+            loading={isLoading}
+            dataSource={data}
+            pagination={{ pageSize: 20, size: 'small' }}
+            renderItem={(t) => (
+              <List.Item onClick={() => nav(`/tasks/${t.id}`)} style={{ display: 'block', cursor: 'pointer' }}>
+                <Space size={4} wrap>
+                  <b style={{ color: '#1F4E78' }}>{t.code}</b>
+                  <StateTag state={t.state} />
+                  <PriorityTag p={t.priority} />
+                </Space>
+                <div style={{ margin: '4px 0', fontWeight: 500 }}>{t.title}</div>
+                <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                  {t.owner.fullName} · Hạn {fmtDate(t.dueDate) || '—'} · Mốc {t.milestoneDone}/{t.milestoneCount} ·{' '}
+                  <DaysLeft days={t.daysLeft} done={t.state === 'DONE'} />
+                </Typography.Text>
+                <ProgressBar value={t.progress} state={t.state} />
+              </List.Item>
+            )}
+          />
+        ) : (
         <Table
           rowKey="id"
           size="small"
@@ -103,6 +126,7 @@ export default function Tasks() {
             { title: 'Số ngày còn', dataIndex: 'daysLeft', width: 110, render: (d, r) => <DaysLeft days={d} done={r.state === 'DONE'} /> },
           ]}
         />
+        )}
       </Card>
       <TaskFormModal open={open} onClose={() => setOpen(false)} onSaved={(t) => nav(`/tasks/${t.id}`)} />
     </>

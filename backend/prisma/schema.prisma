@@ -64,7 +64,7 @@ model User {
   assignedMilestone Milestone[]            @relation("MilestoneAssigner")
   activities        Activity[]
   notifications     Notification[]
-  devices           DeviceToken[]
+  pushSubs          WebPushSubscription[]
   crossAssigned     CrossGroupAssignment[] @relation("CrossAssigner")
   crossReceived     CrossGroupAssignment[] @relation("CrossAssignee")
   crossLead         CrossGroupAssignment[] @relation("CrossAssigneeLead")
@@ -165,15 +165,26 @@ model Notification {
   @@index([userId, readAt])
 }
 
-/// FCM registration token của thiết bị (Android/iOS/Web)
-model DeviceToken {
+/// Đăng ký nhận thông báo đẩy (Web Push chuẩn) của một trình duyệt/thiết bị:
+/// Safari iOS 16.4+ (đã "Thêm vào MH chính"), Chrome Android, trình duyệt máy tính.
+model WebPushSubscription {
   id        Int      @id @default(autoincrement())
   userId    Int
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
-  platform  String // android | ios | web
-  updatedAt DateTime @updatedAt
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+/// Cấu hình hệ thống lưu trong CSDL (vd khoá VAPID sinh tự động)
+model AppSetting {
+  key   String @id
+  value String
 }
 
 model Category {

@@ -11,6 +11,7 @@ import Staff from './pages/Staff';
 import Settings from './pages/Settings';
 import Notifications from './pages/Notifications';
 import CrossGroupReport from './pages/CrossGroupReport';
+import AppSetup from './pages/AppSetup';
 
 export default function App() {
   const { user, loading, isManager, canAssign } = useAuth();
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="tasks/:id" element={<TaskDetail />} />
         <Route path="staff" element={<Staff />} />
         <Route path="notifications" element={<Notifications />} />
+        <Route path="app-setup" element={<AppSetup />} />
         {isManager && <Route path="settings" element={<Settings />} />}
         {canAssign && <Route path="reports/cross-group" element={<CrossGroupReport />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

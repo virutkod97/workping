@@ -185,7 +185,7 @@ usersRouter.put('/:id', async (req, res) => {
     },
     select: listSelect,
   });
-  if (body.status === 'INACTIVE') await prisma.deviceToken.deleteMany({ where: { userId: id } });
+  if (body.status === 'INACTIVE') await prisma.webPushSubscription.deleteMany({ where: { userId: id } });
   res.json(user);
 });
 
@@ -216,7 +216,7 @@ usersRouter.delete('/:id', requireRole('ADMIN', 'HEAD'), async (req, res) => {
   await prisma.$transaction([
     prisma.user.update({ where: { id }, data: { status: 'INACTIVE' } }),
     prisma.user.updateMany({ where: { managerId: id }, data: { managerId: null } }),
-    prisma.deviceToken.deleteMany({ where: { userId: id } }),
+    prisma.webPushSubscription.deleteMany({ where: { userId: id } }),
   ]);
   res.json({ ok: true });
 });

@@ -1,0 +1,22 @@
+{
+  "name": "WorkPing – Quản lý tiến độ & nhắc việc",
+  "short_name": "WorkPing",
+  "description": "Giao việc, theo dõi tiến độ và nhắc việc cho phòng",
+  "id": "/",
+  "start_url": "/my-work",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "vi",
+  "background_color": "#1F4E78",
+  "theme_color": "#1F4E78",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Việc của tôi", "url": "/my-work", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Thông báo", "url": "/notifications", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

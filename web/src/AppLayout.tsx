@@ -5,14 +5,16 @@ import {
   DashboardOutlined,
   LogoutOutlined,
   MenuOutlined,
+  MobileOutlined,
   ProfileOutlined,
   SwapOutlined,
   SettingOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { PushBanner } from './components/PushSetup';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { useAuth } from './auth';
@@ -25,6 +27,23 @@ export default function AppLayout() {
   const screens = Grid.useBreakpoint();
   const [drawer, setDrawer] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const qc = useQueryClient();
+
+  // Tin nhắn từ service worker: có push mới → làm mới dữ liệu; bấm thông báo → mở đúng trang
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type === 'push') void qc.invalidateQueries();
+      if (e.data?.type === 'navigate' && typeof e.data.url === 'string') {
+        const u = new URL(e.data.url);
+        nav(u.pathname + u.search);
+        void qc.invalidateQueries();
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
+  }, [nav, qc]);
+
   const { data: unread } = useQuery({
     queryKey: ['unread'],
     queryFn: () => api.get<{ count: number }>('/notifications/unread-count'),
@@ -38,6 +57,7 @@ export default function AppLayout() {
     { key: '/staff', icon: <TeamOutlined />, label: 'Nhân sự' },
     ...(canAssign ? [{ key: '/reports/cross-group', icon: <SwapOutlined />, label: 'Giao ngoài nhóm' }] : []),
     { key: '/notifications', icon: <BellOutlined />, label: <span>Thông báo {!!unread?.count && <Badge count={unread.count} size="small" style={{ marginLeft: 6 }} />}</span> },
+    { key: '/app-setup', icon: <MobileOutlined />, label: 'Cài app & thông báo' },
     ...(isManager ? [{ key: '/settings', icon: <SettingOutlined />, label: 'Cấu hình' }] : []),
   ];
   const selected = items.map((i) => i.key).filter((k) => (k === '/' ? loc.pathname === '/' : loc.pathname.startsWith(k)));
@@ -78,8 +98,9 @@ export default function AppLayout() {
           <Dropdown
             menu={{
               items: [
+                { key: 'app', icon: <MobileOutlined />, label: 'Cài app & thông báo', onClick: () => nav('/app-setup') },
                 { key: 'pw', icon: <UserOutlined />, label: 'Đổi mật khẩu', onClick: () => setPwOpen(true) },
-                { key: 'out', icon: <LogoutOutlined />, label: 'Đăng xuất', onClick: logout },
+                { key: 'out', icon: <LogoutOutlined />, label: 'Đăng xuất', onClick: () => void logout() },
               ],
             }}
           >
@@ -94,9 +115,17 @@ export default function AppLayout() {
             </div>
           </Dropdown>
         </Layout.Header>
-        <Layout.Content style={{ padding: screens.md ? 24 : 12 }}>
+        <Layout.Content
+          style={{
+            padding: screens.md ? 24 : 12,
+            // chừa chỗ cho thanh điều hướng dưới + vùng an toàn của iPhone
+            paddingBottom: screens.md ? 24 : 'calc(76px + env(safe-area-inset-bottom))',
+          }}
+        >
+          {loc.pathname !== '/app-setup' && <PushBanner />}
           <Outlet />
         </Layout.Content>
+        {!screens.md && <BottomNav unread={unread?.count ?? 0} />}
       </Layout>
       <ChangePasswordModal open={pwOpen || !!user?.mustChangePassword} forced={!!user?.mustChangePassword} onClose={() => { setPwOpen(false); void refresh(); }} />
     </Layout>
@@ -151,5 +180,61 @@ function ChangePasswordModal({ open, forced, onClose }: { open: boolean; forced:
         </Form.Item>
       </Form>
     </Modal>
+  );
+}
+
+/** Thanh điều hướng dưới cùng trên điện thoại — giống ứng dụng di động */
+function BottomNav({ unread }: { unread: number }) {
+  const nav = useNavigate();
+  const loc = useLocation();
+  const tabs = [
+    { to: '/', icon: <DashboardOutlined />, label: 'Tổng quan' },
+    { to: '/my-work', icon: <CheckSquareOutlined />, label: 'Việc tôi' },
+    { to: '/tasks', icon: <ProfileOutlined />, label: 'Công việc' },
+    { to: '/notifications', icon: <BellOutlined />, label: 'Thông báo', badge: unread },
+  ];
+  return (
+    <nav
+      style={{
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 100,
+        display: 'flex',
+        background: '#fff',
+        borderTop: '1px solid #e5e7eb',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+      }}
+    >
+      {tabs.map((t) => {
+        const active = t.to === '/' ? loc.pathname === '/' : loc.pathname.startsWith(t.to);
+        return (
+          <button
+            key={t.to}
+            onClick={() => nav(t.to)}
+            style={{
+              flex: 1,
+              border: 0,
+              background: 'none',
+              padding: '8px 0 6px',
+              color: active ? '#1F4E78' : '#8c8c8c',
+              fontWeight: active ? 600 : 400,
+              fontSize: 11,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2,
+              cursor: 'pointer',
+            }}
+          >
+            <Badge count={t.badge} size="small" offset={[6, 0]}>
+              <span style={{ fontSize: 20, color: active ? '#1F4E78' : '#8c8c8c' }}>{t.icon}</span>
+            </Badge>
+            {t.label}
+          </button>
+        );
+      })}
+    </nav>
   );
 }

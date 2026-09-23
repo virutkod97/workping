@@ -26,7 +26,7 @@ export default function Settings() {
               <Button icon={<BellOutlined />} loading={runReminders.isPending} onClick={() => runReminders.mutate()}>Gửi nhắc việc ngay</Button>
             </Space>
             <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-              Hệ thống tự gửi nhắc việc hằng ngày (mặc định 8h sáng thứ 2–7) tới điện thoại qua Firebase.
+              Hệ thống tự gửi nhắc việc hằng ngày (mặc định 8h sáng thứ 2–7) tới điện thoại/máy tính đã bật thông báo (menu Cài app & thông báo).
             </Typography.Paragraph>
           </Card>
         </Col>

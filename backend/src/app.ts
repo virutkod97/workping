@@ -10,12 +10,11 @@ import { authRouter } from './routes/auth';
 import { usersRouter } from './routes/users';
 import { milestonesRouter, tasksRouter } from './routes/tasks';
 import { dashboardRouter } from './routes/dashboard';
-import { devicesRouter, notificationsRouter } from './routes/notifications';
+import { notificationsRouter, pushRouter } from './routes/notifications';
 import { categoriesRouter } from './routes/categories';
 import { excelRouter } from './routes/excel';
 import { reportsRouter } from './routes/reports';
 import { runReminders } from './services/reminders';
-import { pushEnabled, sendPushToUser } from './services/push';
 import { me } from './lib/auth';
 
 export function createApp() {
@@ -25,7 +24,7 @@ export function createApp() {
   app.use(express.json({ limit: '2mb' }));
 
   const api = express.Router();
-  api.get('/health', (_req, res) => void res.json({ ok: true, push: pushEnabled() }));
+  api.get('/health', (_req, res) => void res.json({ ok: true }));
   api.use('/auth', authRouter);
   api.use(requireAuth);
   api.use('/users', usersRouter);
@@ -33,22 +32,25 @@ export function createApp() {
   api.use('/milestones', milestonesRouter);
   api.use('/dashboard', dashboardRouter);
   api.use('/notifications', notificationsRouter);
-  api.use('/devices', devicesRouter);
+  api.use('/push', pushRouter);
   api.use('/categories', categoriesRouter);
   api.use('/excel', excelRouter);
   api.use('/reports', reportsRouter);
   api.post('/admin/run-reminders', requireRole('ADMIN', 'HEAD'), async (_req, res) => void res.json(await runReminders()));
-  /** Gửi thử push tới chính mình để kiểm tra cấu hình Firebase */
-  api.post('/devices/test', async (req, res) => {
-    const sent = await sendPushToUser(me(req).id, { title: 'WorkPing', body: 'Thông báo thử nghiệm thành công 🎉', data: { type: 'TEST' } });
-    res.json({ pushEnabled: pushEnabled(), sent });
-  });
   app.use('/api', api);
 
   // Phục vụ bản build web (nếu có) từ cùng server
   const webDist = path.resolve(process.env.WEB_DIST || path.join(__dirname, '../../web/dist'));
   if (fs.existsSync(webDist)) {
-    app.use(express.static(webDist));
+    app.use(
+      express.static(webDist, {
+        setHeaders: (res, file) => {
+          // Service worker & manifest luôn lấy bản mới để cập nhật ứng dụng trên điện thoại
+          if (/(sw\.js|manifest\.webmanifest|index\.html)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+          else if (file.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        },
+      }),
+    );
     app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
   }
 
