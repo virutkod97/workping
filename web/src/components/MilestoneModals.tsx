@@ -251,12 +251,6 @@ export function AddMembersModal(props: { milestone: Milestone | null; onClose: (
           )}
         </>
       )}
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="Có thể chọn nhiều người. Mốc hoàn thành khi tất cả đánh dấu xong, hoặc khi người chủ trì đánh hoàn thành."
-      />
       <Form form={form} layout="vertical" onFinish={save.mutate}>
         <Form.Item name="userIds" label="Người thực hiện" rules={[{ required: true, message: 'Chọn ít nhất 1 người' }]}>
           <AssigneeSelect multiple excludeIds={exclude} placeholder="Chọn một hoặc nhiều nhân viên" />
