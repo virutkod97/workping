@@ -15,6 +15,7 @@ import { categoriesRouter } from './routes/categories';
 import { excelRouter } from './routes/excel';
 import { reportsRouter } from './routes/reports';
 import { runReminders } from './services/reminders';
+import { getCertStatus } from './services/cert';
 import { me } from './lib/auth';
 
 export function createApp() {
@@ -37,6 +38,7 @@ export function createApp() {
   api.use('/excel', excelRouter);
   api.use('/reports', reportsRouter);
   api.post('/admin/run-reminders', requireRole('ADMIN', 'HEAD'), async (_req, res) => void res.json(await runReminders()));
+  api.get('/system/cert', requireRole('ADMIN', 'HEAD'), async (req, res) => void res.json(await getCertStatus(req.query.refresh === '1')));
   app.use('/api', api);
 
   // Phục vụ bản build web (nếu có) từ cùng server

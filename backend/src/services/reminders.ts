@@ -5,6 +5,7 @@ import { dateStr, daysUntil, todayStr } from '../lib/dates';
 import { milestoneWarning, taskProgress, taskState } from '../lib/status';
 import { subordinateIds } from '../lib/permissions';
 import { notify } from './notify';
+import { notifyCertExpiry } from './cert';
 
 function ddmm(d: Date | null) {
   const s = dateStr(d);
@@ -22,7 +23,7 @@ function ddmm(d: Date | null) {
  */
 export async function runReminders(now: Date = new Date()) {
   const today = todayStr(now);
-  const stats = { itemReminders: 0, digests: 0, managerDigests: 0 };
+  const stats = { itemReminders: 0, digests: 0, managerDigests: 0, certAlerts: 0 };
 
   const milestones = await prisma.milestone.findMany({
     where: { status: { notIn: ['DONE', 'PAUSED'] } },
@@ -102,6 +103,12 @@ export async function runReminders(now: Date = new Date()) {
     });
     if (sent) stats.managerDigests++;
   }
+
+  // 4) Chứng chỉ HTTPS sắp hết hạn
+  stats.certAlerts = await notifyCertExpiry(now).catch((e) => {
+    console.error('[cert] lỗi kiểm tra chứng chỉ', e);
+    return 0;
+  });
   return stats;
 }
 

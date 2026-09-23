@@ -4,7 +4,7 @@ import { sendPushToUser } from './push';
 
 export interface NotifyInput {
   userId: number;
-  type: 'ASSIGNED' | 'STATUS' | 'COMMENT' | 'REMINDER' | 'DIGEST' | 'UPDATED';
+  type: 'ASSIGNED' | 'STATUS' | 'COMMENT' | 'REMINDER' | 'DIGEST' | 'UPDATED' | 'SYSTEM';
   title: string;
   body: string;
   taskId?: number | null;
@@ -32,7 +32,7 @@ export async function notify(n: NotifyInput): Promise<boolean> {
     throw e;
   }
   const badge = await prisma.notification.count({ where: { userId: n.userId, readAt: null } });
-  const url = n.taskId ? `/tasks/${n.taskId}` : n.type === 'DIGEST' || n.type === 'REMINDER' ? '/my-work' : '/notifications';
+  const url = n.taskId ? `/tasks/${n.taskId}` : n.type === 'SYSTEM' ? '/settings' : n.type === 'DIGEST' || n.type === 'REMINDER' ? '/my-work' : '/notifications';
   sendPushToUser(n.userId, { title: n.title, body: n.body, url, badge, tag: n.dedupeKey ?? undefined }).catch((e) =>
     console.error('[push] gửi thất bại', e),
   );

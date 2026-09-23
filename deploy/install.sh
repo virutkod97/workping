@@ -322,6 +322,18 @@ else
   ok "Nginx đã cấu hình"
 fi
 
+# Cho ứng dụng biết chứng chỉ để cảnh báo trên web khi sắp hết hạn
+set_env() { # $1 = khoá, $2 = giá trị; trả về 0 nếu có thay đổi
+  local cur; cur=$(grep -E "^$1=" "$ENV_FILE" | cut -d= -f2- || true)
+  [[ "$cur" == "$2" ]] && return 1
+  if grep -qE "^$1=" "$ENV_FILE"; then sed -i "s#^$1=.*#$1=$2#" "$ENV_FILE"; else echo "$1=$2" >> "$ENV_FILE"; fi
+}
+ENV_CHANGED=0
+set_env CERT_MODE "$TLS_MODE" && ENV_CHANGED=1
+set_env PUBLIC_DOMAIN "$DOMAIN" && ENV_CHANGED=1
+set_env HTTPS_PORT "$HTTPS_PORT" && ENV_CHANGED=1
+if [[ $ENV_CHANGED == 1 ]]; then systemctl restart $APP_NAME 2>/dev/null || true; fi
+
 # ------------------------------ Kết quả ------------------------------
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 if [[ $SKIP_NGINX == 1 ]]; then URL="http://127.0.0.1:$PORT"

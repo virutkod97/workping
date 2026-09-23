@@ -15,6 +15,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { PushBanner } from './components/PushSetup';
+import { CertBanner } from './components/CertBanner';
 import { Logo } from './components/Logo';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
@@ -127,6 +128,7 @@ export default function AppLayout() {
             paddingBottom: screens.md ? 24 : 'calc(76px + env(safe-area-inset-bottom))',
           }}
         >
+          <CertBanner />
           {loc.pathname !== '/app-setup' && <PushBanner />}
           <Outlet />
         </Layout.Content>

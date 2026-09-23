@@ -174,7 +174,7 @@ describe('nhắc việc tự động', () => {
     expect(n.find((x) => x.type === 'DIGEST')?.body).toContain('1 việc QUÁ HẠN');
 
     const s2 = await runReminders();
-    expect(s2).toEqual({ itemReminders: 0, digests: 0, managerDigests: 0 });
+    expect(s2).toEqual({ itemReminders: 0, digests: 0, managerDigests: 0, certAlerts: 0 });
   });
 });
 

@@ -83,6 +83,14 @@ sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn --h
 
 Mở / NAT trên tường lửa, router: `80 → máy chủ:80` và `8443 → máy chủ:8443`.
 
+**Chỉ mở cổng 80 khi cần gia hạn.** Sau khi cài xong có thể đóng NAT cổng 80, lúc đó người dùng phải gõ đủ `https://…:8443`. Khi chứng chỉ còn ≤ 30 ngày, WorkPing tự cảnh báo cho Quản trị và Trưởng phòng: banner trên mọi trang, thông báo đẩy ở các mốc 30/14/7/3/1 ngày, và mục *Cấu hình → Chứng chỉ HTTPS*. Để gia hạn:
+
+1. Mở lại NAT cổng 80 về máy chủ.
+2. Chạy `sudo certbot renew` (hoặc để nguyên, certbot tự thử 2 lần/ngày).
+3. Bấm **Kiểm tra lại** trên web. Hết cảnh báo nghĩa là đã gia hạn xong; đóng lại cổng 80.
+
+Ngưỡng cảnh báo đổi được bằng `CERT_WARN_DAYS` trong `/etc/workping/workping.env`.
+
 **Cách 2 – chứng chỉ có sẵn** (không cần cổng 80). Dùng khi cổng 80 bị chặn, hoặc công ty đã có chứng chỉ, VD `*.congty.vn`:
 
 ```bash

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { api } from '../api';
 import { useCategories } from '../hooks';
 import type { Category } from '../types';
+import { CertCard } from '../components/CertBanner';
 
 export default function Settings() {
   const { message } = App.useApp();
@@ -29,6 +30,9 @@ export default function Settings() {
               Hệ thống tự gửi nhắc việc hằng ngày (mặc định 8h sáng thứ 2–7) tới điện thoại/máy tính đã bật thông báo (menu Cài app & thông báo).
             </Typography.Paragraph>
           </Card>
+          <div style={{ marginTop: 16 }}>
+            <CertCard />
+          </div>
         </Col>
         <Col xs={24} lg={12}>
           <Row gutter={[16, 16]}>

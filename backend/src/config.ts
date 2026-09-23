@@ -24,5 +24,12 @@ export const config = {
   vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
   // Máy chủ ra Internet qua proxy: vd http://proxy.congty.vn:8080
   pushProxy: process.env.PUSH_PROXY || '',
+  // Chứng chỉ HTTPS (install.sh ghi vào): CERT_MODE=le (Let's Encrypt) | own (chứng chỉ có sẵn); trống = không kiểm tra
+  certMode: (process.env.CERT_MODE || '') as '' | 'le' | 'own',
+  publicDomain: process.env.PUBLIC_DOMAIN || '',
+  httpsPort: num(process.env.HTTPS_PORT, 443),
+  certCheckHost: process.env.CERT_CHECK_HOST || '127.0.0.1',
+  // Cảnh báo trên web khi chứng chỉ còn ≤ N ngày (certbot chỉ gia hạn khi còn ≤ 30 ngày)
+  certWarnDays: num(process.env.CERT_WARN_DAYS, 30),
   disableScheduler: process.env.DISABLE_SCHEDULER === '1',
 };
