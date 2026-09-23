@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Cấp bậc trong phòng: dùng cho phân quyền giao việc 3 cấp
+enum Role {
+  ADMIN // Quản trị hệ thống
+  HEAD // Trưởng phòng
+  DEPUTY // Phó phòng
+  STAFF // Nhân viên / chuyên viên / kỹ sư
+}
+
+enum UserStatus {
+  ACTIVE // Đang công tác
+  INACTIVE // Nghỉ / chuyển công tác
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum MilestoneStatus {
+  NOT_STARTED // Chưa thực hiện
+  IN_PROGRESS // Đang thực hiện
+  DONE // Hoàn thành
+  PAUSED // Tạm dừng
+}
+
+enum CategoryType {
+  TASK_GROUP // Nhóm công việc
+  TEAM // Bộ phận
+}
+
+/// Nhân sự (thay sheet DANH_MUC cột E:J) — đồng thời là tài khoản đăng nhập
+model User {
+  id                 Int        @id @default(autoincrement())
+  code               String     @unique // NS001
+  fullName           String
+  title              String? // Chức danh hiển thị: Trưởng phòng, Chuyên viên, Kỹ sư...
+  role               Role       @default(STAFF)
+  team               String? // Bộ phận
+  phone              String?
+  email              String?
+  status             UserStatus @default(ACTIVE)
+  username           String     @unique
+  passwordHash       String
+  mustChangePassword Boolean    @default(true)
+  managerId          Int?
+  manager            User?      @relation("Reporting", fields: [managerId], references: [id], onDelete: SetNull)
+  subordinates       User[]     @relation("Reporting")
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  ownedTasks        Task[]         @relation("TaskOwner")
+  assignedTasks     Task[]         @relation("TaskAssigner")
+  milestones        Milestone[]    @relation("MilestoneAssignee")
+  assignedMilestone Milestone[]    @relation("MilestoneAssigner")
+  activities        Activity[]
+  notifications     Notification[]
+  devices           DeviceToken[]
+}
+
+/// Công việc (thay sheet CONG_VIEC)
+model Task {
+  id         Int       @id @default(autoincrement())
+  code       String    @unique // CV001
+  title      String
+  groupName  String? // Nhóm công việc
+  unit       String? // Đơn vị/Bộ phận
+  priority   Priority  @default(MEDIUM)
+  startDate  DateTime? @db.Date
+  dueDate    DateTime? @db.Date
+  note       String?
+  /// Cấp 1: người giao (thường là Trưởng phòng)
+  assignerId Int
+  assigner   User      @relation("TaskAssigner", fields: [assignerId], references: [id])
+  /// Cấp 2: người phụ trách chung (thường là Phó phòng)
+  ownerId    Int
+  owner      User      @relation("TaskOwner", fields: [ownerId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  milestones Milestone[]
+  activities Activity[]
+
+  @@index([ownerId])
+  @@index([assignerId])
+  @@index([dueDate])
+}
+
+/// Mốc công việc (thay sheet MOC_CONG_VIEC) — cấp 3: giao cho nhân viên thực hiện
+model Milestone {
+  id           Int             @id @default(autoincrement())
+  taskId       Int
+  task         Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  seq          Int // STT mốc
+  content      String
+  weight       Float           @default(1) // Trọng số
+  dueDate      DateTime?       @db.Date
+  assigneeId   Int?
+  assignee     User?           @relation("MilestoneAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  assignedById Int?
+  assignedBy   User?           @relation("MilestoneAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  unit         String?
+  status       MilestoneStatus @default(NOT_STARTED)
+  percent      Int             @default(0) // % hoàn thành mốc 0..100
+  completedAt  DateTime?       @db.Date
+  note         String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  activities Activity[]
+
+  @@index([taskId])
+  @@index([assigneeId])
+  @@index([dueDate])
+}
+
+/// Nhật ký: bình luận, đổi trạng thái, giao việc...
+model Activity {
+  id          Int        @id @default(autoincrement())
+  taskId      Int
+  task        Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  milestoneId Int?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  userId      Int
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String // COMMENT | CREATE | UPDATE | ASSIGN | STATUS
+  content     String
+  createdAt   DateTime   @default(now())
+
+  @@index([taskId])
+}
+
+model Notification {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String // ASSIGNED | STATUS | COMMENT | REMINDER | DIGEST
+  title       String
+  body        String
+  taskId      Int?
+  milestoneId Int?
+  /// Chống gửi trùng lời nhắc trong cùng 1 ngày
+  dedupeKey   String?   @unique
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+/// FCM registration token của thiết bị (Android/iOS/Web)
+model DeviceToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String // android | ios | web
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model Category {
+  id        Int          @id @default(autoincrement())
+  type      CategoryType
+  name      String
+  sortOrder Int          @default(0)
+
+  @@unique([type, name])
+}

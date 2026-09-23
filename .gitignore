@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+# Firebase secrets — không commit
+firebase-service-account*.json
+google-services.json
+GoogleService-Info.plist
+# Expo / React Native
+mobile/.expo/
+mobile/android/
+mobile/ios/
