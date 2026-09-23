@@ -102,7 +102,20 @@ function pushServiceHint(): string {
 
 /** Service worker (chạy nền, nhận thông báo) — đăng ký nếu chưa có, chờ tối đa 10 giây */
 async function readyRegistration(): Promise<ServiceWorkerRegistration> {
-  if (!(await navigator.serviceWorker.getRegistration())) await navigator.serviceWorker.register('/sw.js');
+  if (!(await navigator.serviceWorker.getRegistration())) {
+    try {
+      await navigator.serviceWorker.register('/sw.js');
+    } catch (e) {
+      // Mở bằng IP / chứng chỉ không khớp → trình duyệt cấm service worker
+      if (/SSL|certificate/i.test((e as Error)?.message ?? '')) {
+        throw new PushSetupError(
+          `Trình duyệt chặn vì lỗi chứng chỉ bảo mật: đang mở bằng ${location.host}, chứng chỉ chỉ hợp lệ với tên miền.`,
+          'Mở WorkPing bằng tên miền (vd https://nbpc.evn.vn:8888) thay cho địa chỉ IP rồi bật lại. Trong mạng nội bộ không mở được tên miền: nhờ bộ phận mạng thêm DNS nội bộ trỏ tên miền về IP máy chủ, hoặc thêm dòng "<IP máy chủ> <tên miền>" vào file C:\\Windows\\System32\\drivers\\etc\\hosts.',
+        );
+      }
+      throw e;
+    }
+  }
   return withTimeout(
     navigator.serviceWorker.ready,
     10_000,

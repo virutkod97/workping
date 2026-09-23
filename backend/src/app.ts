@@ -53,6 +53,12 @@ export function createApp() {
 
   const api = express.Router();
   api.get('/health', (_req, res) => void res.json({ ok: true }));
+  // Địa chỉ chính thức (tên miền có chứng chỉ HTTPS) — web dùng để cảnh báo khi mở bằng IP/địa chỉ khác
+  api.get('/public-config', (_req, res) => {
+    const d = config.publicDomain;
+    const publicUrl = config.certMode && d ? `https://${d}${config.httpsPort === 443 ? '' : `:${config.httpsPort}`}` : null;
+    res.json({ publicUrl });
+  });
   api.use('/auth', authRouter);
   api.use(requireAuth);
   api.use('/push', pushRouter);

@@ -87,6 +87,19 @@ describe('thông báo đẩy: chống SSRF', () => {
   });
 });
 
+describe('địa chỉ chính thức', () => {
+  it('trả về https://tên-miền:cổng khi có chứng chỉ, không cần đăng nhập', async () => {
+    const old = { m: config.certMode, d: config.publicDomain, p: config.httpsPort };
+    try {
+      expect((await request(app).get('/api/public-config')).body).toEqual({ publicUrl: null });
+      Object.assign(config, { certMode: 'le', publicDomain: 'nbpc.evn.vn', httpsPort: 8888 });
+      expect((await request(app).get('/api/public-config')).body).toEqual({ publicUrl: 'https://nbpc.evn.vn:8888' });
+    } finally {
+      Object.assign(config, { certMode: old.m, publicDomain: old.d, httpsPort: old.p });
+    }
+  });
+});
+
 describe('header bảo mật', () => {
   it('có CSP, chống nhúng iframe, không lộ Express, không bật CORS', async () => {
     const r = await request(app).get('/api/health').set('Origin', 'https://evil.example');
