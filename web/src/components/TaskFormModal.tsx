@@ -110,6 +110,18 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
             <Form.List name="milestones">
               {(fields, { add, remove }) => (
                 <>
+                  {fields.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, fontSize: 12, color: '#888', marginBottom: 4, flexWrap: 'wrap' }}>
+                      <span style={{ width: 20 }} />
+                      <span style={{ flex: 3, minWidth: 200 }}>Nội dung mốc</span>
+                      <span style={{ flex: 2, minWidth: 180 }}>Người thực hiện</span>
+                      <span style={{ width: 140 }}>Hạn</span>
+                      <span style={{ width: 80 }} title="Mốc quan trọng hơn thì đặt trọng số lớn hơn; % tiến độ công việc = Σ(trọng số × % mốc) / Σ trọng số">
+                        Trọng số ⓘ
+                      </span>
+                      <span style={{ width: 14 }} />
+                    </div>
+                  )}
                   {fields.map(({ key, name }, i) => (
                     <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                       <span style={{ paddingTop: 6, width: 20 }}>{i + 1}.</span>
@@ -122,8 +134,8 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
                       <Form.Item name={[name, 'dueDate']} style={{ width: 140 }}>
                         <DatePicker format="DD/MM/YYYY" placeholder="Hạn" style={{ width: '100%' }} />
                       </Form.Item>
-                      <Form.Item name={[name, 'weight']} initialValue={1} style={{ width: 80 }} tooltip="Trọng số">
-                        <InputNumber min={0} step={0.5} placeholder="Trọng số" style={{ width: '100%' }} />
+                      <Form.Item name={[name, 'weight']} initialValue={1} style={{ width: 80 }}>
+                        <InputNumber min={0} step={0.5} placeholder="Trọng số" title="Trọng số" style={{ width: '100%' }} />
                       </Form.Item>
                       <MinusCircleOutlined style={{ paddingTop: 9 }} onClick={() => remove(name)} />
                     </div>
