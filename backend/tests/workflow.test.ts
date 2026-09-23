@@ -483,3 +483,45 @@ describe('danh mục', () => {
     expect((await as(head).get(`/api/users/${staffA.id}`)).body.team).toBe('An toàn thông tin');
   });
 });
+
+describe('tổng quan: công việc cần chú ý', () => {
+  it('gồm cả việc không đặt hạn chung nhưng có mốc quá hạn / sắp đến hạn; bỏ việc đã xong và mốc tạm dừng', async () => {
+    const { head, depA } = await org();
+    // 1. Không có hạn chung, mốc 2 quá hạn 2 ngày
+    const a = await as(head).post('/api/tasks', {
+      title: 'Không hạn chung',
+      ownerId: depA.id,
+      milestones: [
+        { content: 'Khảo sát', weight: 1, dueDate: day(10), assigneeId: depA.id },
+        { content: 'Nộp báo cáo', weight: 1, dueDate: day(-2), assigneeId: depA.id },
+      ],
+    });
+    // 2. Hạn chung còn xa, mốc sắp đến hạn (còn 1 ngày)
+    await as(head).post('/api/tasks', {
+      title: 'Hạn chung xa',
+      ownerId: depA.id,
+      dueDate: day(30),
+      milestones: [{ content: 'Họp', weight: 1, dueDate: day(1), assigneeId: depA.id }],
+    });
+    // 3. Hạn chung đã qua (theo hạn chung)
+    await as(head).post('/api/tasks', { title: 'Trễ hạn chung', ownerId: depA.id, dueDate: day(-5) });
+    // 4. Mốc quá hạn nhưng đang tạm dừng → không tính
+    const p = await as(head).post('/api/tasks', {
+      title: 'Tạm dừng',
+      ownerId: depA.id,
+      milestones: [{ content: 'Chờ', weight: 1, dueDate: day(-1), assigneeId: depA.id }],
+    });
+    await as(head).patch(`/api/milestones/${p.body.milestones[0].id}/progress`, { status: 'PAUSED' });
+    // 5. Không hạn gì → không tính
+    await as(head).post('/api/tasks', { title: 'Thong thả', ownerId: depA.id, milestones: [{ content: 'X', weight: 1, assigneeId: depA.id }] });
+
+    const d = await as(head).get('/api/dashboard');
+    const rows = d.body.attention.map((x: { title: string; alert: string; alertDays: number; alertNote: string | null }) => [x.title, x.alert, x.alertDays, x.alertNote]);
+    expect(rows).toEqual([
+      ['Trễ hạn chung', 'OVERDUE', -5, null],
+      ['Không hạn chung', 'OVERDUE', -2, 'Mốc 2: Nộp báo cáo'],
+      ['Hạn chung xa', 'DUE_SOON', 1, 'Mốc 1: Họp'],
+    ]);
+    expect(d.body.attention[1].id).toBe(a.body.id);
+  });
+});

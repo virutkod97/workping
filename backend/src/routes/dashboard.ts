@@ -33,17 +33,31 @@ dashboardRouter.get('/', async (req, res) => {
     overdue: count(milestones, (m) => m.warning === 'OVERDUE'),
   };
 
-  // Công việc cần chú ý: quá hạn trước, rồi sắp đến hạn; ưu tiên cao lên trên
+  // Công việc cần chú ý: hạn chung của công việc HOẶC một mốc chưa xong đã quá hạn / sắp đến hạn.
+  // Quá hạn trước, rồi còn ít ngày hơn, rồi ưu tiên cao.
   const prioRank = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const;
+  type Alert = { level: 'OVERDUE' | 'DUE_SOON'; days: number; due: string | null; note: string | null };
+  const worse = (a: Alert | null, b: Alert) => (!a || (b.level === 'OVERDUE' ? 0 : 1) < (a.level === 'OVERDUE' ? 0 : 1) || (b.level === a.level && b.days < a.days) ? b : a);
   const attention = tasks
-    .filter((t) => t.state === 'OVERDUE' || t.state === 'DUE_SOON')
+    .map((t) => {
+      if (t.state === 'DONE') return null;
+      let alert: Alert | null = null;
+      if (t.state === 'OVERDUE' || t.state === 'DUE_SOON') alert = { level: t.state, days: t.daysLeft ?? 0, due: t.dueDate, note: null };
+      for (const m of t.milestones) {
+        if (m.status === 'DONE' || m.status === 'PAUSED' || (m.warning !== 'OVERDUE' && m.warning !== 'DUE_SOON')) continue;
+        alert = worse(alert, { level: m.warning, days: m.daysLeft ?? 0, due: m.dueDate, note: `Mốc ${m.seq}: ${m.content}` });
+      }
+      if (!alert) return null;
+      const { milestones: _m, ...rest } = t;
+      return { ...rest, alert: alert.level, alertDays: alert.days, alertDue: alert.due, alertNote: alert.note };
+    })
+    .filter((x): x is NonNullable<typeof x> => !!x)
     .sort(
       (a, b) =>
-        (a.state === 'OVERDUE' ? 0 : 1) - (b.state === 'OVERDUE' ? 0 : 1) ||
-        (a.daysLeft ?? 0) - (b.daysLeft ?? 0) ||
+        (a.alert === 'OVERDUE' ? 0 : 1) - (b.alert === 'OVERDUE' ? 0 : 1) ||
+        a.alertDays - b.alertDays ||
         prioRank[a.priority] - prioRank[b.priority],
-    )
-    .map(({ milestones: _m, ...t }) => t);
+    );
 
   // Thống kê theo nhân sự (theo mốc được giao)
   const byPerson = new Map<number, { user: MilestoneDto['assignee']; total: number; done: number; overdue: number; dueSoon: number }>();

@@ -127,7 +127,14 @@ export interface Category {
 export interface Dashboard {
   tasks: { total: number; done: number; inProgress: number; notStarted: number; dueSoon: number; overdue: number };
   milestones: { total: number; done: number; inProgress: number; paused: number; dueSoon: number; overdue: number };
-  attention: Omit<Task, 'milestones'>[];
+  attention: (Omit<Task, 'milestones'> & {
+    /** Quá hạn / sắp đến hạn — theo hạn chung hoặc theo mốc chưa xong */
+    alert: 'OVERDUE' | 'DUE_SOON';
+    alertDays: number;
+    alertDue: string | null;
+    /** Mốc gây cảnh báo (null = theo hạn chung của công việc) */
+    alertNote: string | null;
+  })[];
   byPerson: { user: UserBrief; total: number; done: number; overdue: number; dueSoon: number }[];
   byGroup: { group: string; total: number; done: number; overdue: number }[];
 }

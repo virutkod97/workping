@@ -1,10 +1,10 @@
-import { Card, Col, Empty, Row, Statistic, Table, Typography } from 'antd';
+import { Card, Col, Empty, Row, Statistic, Table, Tag, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { fmtDate } from '../hooks';
 import type { Dashboard as D } from '../types';
-import { DaysLeft, PriorityTag, ProgressBar, StateTag } from '../components/Tags';
+import { DaysLeft, PriorityTag, ProgressBar } from '../components/Tags';
 
 export default function Dashboard() {
   const { data, isLoading } = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get<D>('/dashboard') });
@@ -48,13 +48,32 @@ export default function Dashboard() {
           locale={{ emptyText: <Empty description="Không có việc quá hạn hoặc sắp đến hạn 👍" /> }}
           columns={[
             { title: 'Mã', dataIndex: 'code', width: 80, render: (v, r) => <Link to={`/tasks/${r.id}`}>{v}</Link> },
-            { title: 'Công việc', dataIndex: 'title', ellipsis: true },
+            {
+              title: 'Công việc',
+              dataIndex: 'title',
+              ellipsis: true,
+              render: (v, r) => (
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
+                  {r.alertNote && (
+                    <Typography.Text type={r.alert === 'OVERDUE' ? 'danger' : 'warning'} style={{ fontSize: 12 }} ellipsis>
+                      ⚠ {r.alertNote}
+                    </Typography.Text>
+                  )}
+                </div>
+              ),
+            },
             { title: 'Phụ trách', dataIndex: ['owner', 'fullName'], width: 160 },
             { title: 'Ưu tiên', dataIndex: 'priority', width: 100, render: (p) => <PriorityTag p={p} /> },
-            { title: 'Hạn', dataIndex: 'dueDate', width: 100, render: fmtDate },
-            { title: 'Còn', dataIndex: 'daysLeft', width: 110, render: (d) => <DaysLeft days={d} /> },
+            { title: 'Hạn', dataIndex: 'alertDue', width: 100, render: fmtDate },
+            { title: 'Còn', dataIndex: 'alertDays', width: 110, render: (d) => <DaysLeft days={d} /> },
             { title: 'Tiến độ', dataIndex: 'progress', width: 140, render: (p, r) => <ProgressBar value={p} state={r.state} /> },
-            { title: 'Tình trạng', dataIndex: 'state', width: 130, render: (s) => <StateTag state={s} /> },
+            {
+              title: 'Tình trạng',
+              dataIndex: 'alert',
+              width: 130,
+              render: (a) => <Tag color={a === 'OVERDUE' ? 'red' : 'orange'}>{a === 'OVERDUE' ? 'Quá hạn' : 'Sắp đến hạn'}</Tag>,
+            },
           ]}
         />
       </Card>
