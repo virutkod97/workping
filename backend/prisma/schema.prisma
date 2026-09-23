@@ -177,15 +177,19 @@ model Notification {
 /// Đăng ký nhận thông báo đẩy (Web Push chuẩn) của một trình duyệt/thiết bị:
 /// Safari iOS 16.4+ (đã "Thêm vào MH chính"), Chrome Android, trình duyệt máy tính.
 model WebPushSubscription {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint  String   @unique
-  p256dh    String
-  auth      String
-  userAgent String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint    String    @unique
+  p256dh      String
+  auth        String
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  /// Kết quả lần gửi gần nhất — để quản trị biết vì sao điện thoại không nhận
+  lastOkAt    DateTime?
+  lastError   String?
+  lastErrorAt DateTime?
 
   @@index([userId])
 }

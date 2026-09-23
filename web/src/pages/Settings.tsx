@@ -6,6 +6,7 @@ import { api } from '../api';
 import { useCategories } from '../hooks';
 import type { Category } from '../types';
 import { CertCard } from '../components/CertBanner';
+import { PushAdminCard } from '../components/PushAdminCard';
 
 export default function Settings() {
   const { message } = App.useApp();
@@ -44,6 +45,9 @@ export default function Settings() {
             </Col>
           </Row>
         </Col>
+        <Col xs={24}>
+          <PushAdminCard />
+        </Col>
       </Row>
     </>
   );
@@ -66,6 +70,14 @@ function CategoryCard({ type, title }: { type: Category['type']; title: string }
     mutationFn: (id: number) => api.delete(`/categories/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
   });
+  const rename = useMutation({
+    mutationFn: (v: { id: number; name: string }) => api.put<{ updated: number }>(`/categories/${v.id}`, { name: v.name }),
+    onSuccess: (r) => {
+      message.success(r.updated ? `Đã đổi tên, cập nhật ${r.updated} ${type === 'TASK_GROUP' ? 'công việc' : 'nhân sự'}` : 'Đã đổi tên');
+      qc.invalidateQueries();
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
   return (
     <Card size="small" title={title}>
       <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
@@ -77,7 +89,18 @@ function CategoryCard({ type, title }: { type: Category['type']; title: string }
         dataSource={data.filter((c) => c.type === type)}
         renderItem={(c) => (
           <List.Item actions={[<Popconfirm key="d" title="Xoá?" onConfirm={() => del.mutate(c.id)}><DeleteOutlined style={{ color: '#cf1322' }} /></Popconfirm>]}>
-            {c.name}
+            <Typography.Text
+              editable={{
+                tooltip: 'Sửa tên',
+                maxLength: 100,
+                onChange: (v) => {
+                  const name = v.trim();
+                  if (name && name !== c.name) rename.mutate({ id: c.id, name });
+                },
+              }}
+            >
+              {c.name}
+            </Typography.Text>
           </List.Item>
         )}
       />

@@ -149,6 +149,8 @@ async function addMembers(
   out: Set<number>,
   reason: string | null | undefined,
   note?: string | null,
+  /** Những người đã được báo riêng (vd người phụ trách khi tạo việc) — không báo trùng */
+  alreadyNotified: Set<number> = new Set(),
 ) {
   const m = await prisma.milestone.findUniqueOrThrow({ where: { id: milestoneId }, include: { members: true, assignee: true } });
   if (m.assignee && m.assignee.role === 'STAFF' && !m.members.some((x) => x.userId === m.assigneeId)) {
@@ -182,7 +184,7 @@ async function addMembers(
   const names = people.map((p) => p.fullName + (out.has(p.id) ? ' (ngoài nhóm)' : '')).join(', ');
   await log(task.id, u.id, 'ASSIGN', `Giao bổ sung mốc ${m.seq} cho ${names}${note ? ` — ${note}` : ''}`, milestoneId);
   for (const id of added) {
-    if (id !== u.id) {
+    if (id !== u.id && !alreadyNotified.has(id)) {
       await notify({
         userId: id,
         type: 'ASSIGNED',
@@ -310,7 +312,8 @@ tasksRouter.post('/', async (req, res) => {
       if (m.outOfGroup && m.assigneeId) await recordCrossGroup(u, { kind: 'MILESTONE', task, milestone: m, assigneeId: m.assigneeId, reason });
     }
   }
-  for (const p of memberPlan) await addMembers(u, task, p.milestoneId, p.memberIds, out, reason);
+  // Người phụ trách được báo "Việc mới được giao" ở dưới → không báo thêm lần nữa
+  for (const p of memberPlan) await addMembers(u, task, p.milestoneId, p.memberIds, out, reason, null, new Set([ownerId]));
   // Trưởng phòng giao thẳng cho nhân viên → báo Phó trưởng phòng nhóm đó
   await notifyLeadsOfDirectAssign(u, task, task.title, [ownerId, ...task.milestones.map((m) => m.assigneeId).filter((x): x is number => !!x)]);
   if (memberPlan.length) task = await loadTask(task.id);

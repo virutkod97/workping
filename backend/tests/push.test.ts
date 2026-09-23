@@ -99,8 +99,71 @@ describe('Web Push (PWA)', () => {
     await as(head).post('/api/push/subscribe', { subscription });
     expect(await prisma.webPushSubscription.findMany({ select: { userId: true } })).toEqual([{ userId: head.id }]);
     const test = await as(head).post('/api/push/test');
-    expect(test.body).toEqual({ devices: 1, sent: 1 });
+    expect(test.body).toMatchObject({ devices: 1, sent: 1 });
     await as(head).post('/api/push/unsubscribe', { endpoint: subscription.endpoint });
     expect(await prisma.webPushSubscription.count()).toBe(0);
+  });
+
+  it('mọi đường giao việc cho nhân viên đều đẩy thông báo: TP giao thẳng, PTP giao bổ sung', async () => {
+    const { head, depA, staffA } = await org();
+    const k = browserKeys();
+    await as(staffA).post('/api/push/subscribe', { subscription: { endpoint: `${base}/push/staff`, keys: k.keys }, userAgent: 'Android Chrome' });
+
+    // 1. Trưởng phòng giao thẳng cho nhân viên
+    await as(head).post('/api/tasks', { title: 'Việc giao thẳng', ownerId: staffA.id });
+    await waitFor(1);
+    await new Promise((r) => setTimeout(r, 300));
+    // Đúng 1 thông báo (trước đây nhận 2 cái trùng nhau)
+    expect(received.map((r) => decrypt(r.body, k).title)).toEqual(['Việc mới được giao: CV001']);
+
+    // 2. Phó phòng giao bổ sung mốc cho nhân viên
+    received.length = 0;
+    const t = await as(head).post('/api/tasks', { title: 'Báo cáo', ownerId: depA.id });
+    const add = await as(depA).post(`/api/milestones/${t.body.milestones[0].id}/members`, { userIds: [staffA.id] });
+    expect(add.status).toBe(200);
+    await waitFor(1);
+    expect(received.map((r) => decrypt(r.body, k).title)).toContain('Được giao việc CV002');
+  });
+
+  it('quản trị: xem thiết bị, gửi thử từng người, lưu lý do lỗi', async () => {
+    const { head, staffA, staffB } = await org();
+    const k = browserKeys();
+    await as(staffA).post('/api/push/subscribe', { subscription: { endpoint: `${base}/push/a`, keys: k.keys }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Safari/604.1' });
+
+    expect((await as(staffA).get('/api/push/admin/devices')).status).toBe(403);
+    expect((await as(staffA).post('/api/push/admin/test', { userId: staffB.id })).status).toBe(403);
+
+    const list = await as(head).get('/api/push/admin/devices');
+    const rowA = list.body.find((u: { id: number }) => u.id === staffA.id);
+    expect(rowA.devices).toHaveLength(1);
+    expect(rowA.devices[0].device).toBe('iPhone · Safari');
+    expect(list.body.find((u: { id: number }) => u.id === staffB.id).devices).toHaveLength(0);
+
+    // Gửi thành công
+    const ok = await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect(ok.body).toMatchObject({ devices: 1, sent: 1, results: [{ ok: true, device: 'iPhone · Safari' }] });
+    expect(decrypt(received[0].body, k).title).toBe('WorkPing – thông báo thử');
+
+    // Dịch vụ push từ chối khoá → lỗi được giải thích và lưu lại
+    nextStatus = 403;
+    const bad = await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect(bad.body.sent).toBe(0);
+    expect(bad.body.results[0].error).toMatch(/VAPID_SUBJECT/);
+    const after = await as(head).get('/api/push/admin/devices');
+    const d = after.body.find((u: { id: number }) => u.id === staffA.id).devices[0];
+    expect(d.lastError).toMatch(/VAPID_SUBJECT/);
+    expect(d.lastOkAt).toBeTruthy();
+
+    // Người chưa bật thông báo
+    expect((await as(head).post('/api/push/admin/test', { userId: staffB.id })).body).toMatchObject({ devices: 0, sent: 0 });
+  });
+
+  it('không kết nối được dịch vụ push → báo lỗi mạng kèm hướng dẫn PUSH_PROXY', async () => {
+    const { head, staffA } = await org();
+    const k = browserKeys();
+    await as(staffA).post('/api/push/subscribe', { subscription: { endpoint: 'https://127.0.0.1:1/push/x', keys: k.keys } });
+    const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect(r.body.results[0].ok).toBe(false);
+    expect(r.body.results[0].error).toMatch(/ECONNREFUSED.*PUSH_PROXY/);
   });
 });

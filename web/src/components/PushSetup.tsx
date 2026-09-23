@@ -65,8 +65,10 @@ export function PushSetupCard() {
       .finally(() => setBusy(false));
   };
   const test = async () => {
-    const r = await api.post<{ devices: number; sent: number }>('/push/test');
+    const r = await api.post<{ devices: number; sent: number; results?: { ok: boolean; error?: string }[] }>('/push/test');
+    const err = r.results?.find((x) => !x.ok)?.error;
     if (r.sent) message.success(`Đã gửi tới ${r.sent}/${r.devices} thiết bị — kiểm tra thông báo`);
+    else if (err) message.error(`Máy chủ không gửi được: ${err}`, 10);
     else message.warning('Chưa gửi được — thử tắt rồi bật lại thông báo');
   };
 

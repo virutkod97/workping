@@ -462,3 +462,24 @@ describe('PTP luôn giữ trách nhiệm chủ trì — không chuyển hẳn ch
     expect((await as(head).get(`/api/tasks/${d.body.id}`)).body.state).toBe('DONE');
   });
 });
+
+describe('danh mục', () => {
+  it('đổi tên nhóm công việc / bộ phận → cập nhật luôn công việc và nhân sự đang dùng tên cũ', async () => {
+    const { head, depA, staffA } = await org();
+    const g = await as(head).post('/api/categories', { type: 'TASK_GROUP', name: 'CNTT' });
+    const tm = await as(head).post('/api/categories', { type: 'TEAM', name: 'ATTT' });
+    await as(head).post('/api/categories', { type: 'TEAM', name: 'Viễn thông' });
+    const t = await as(head).post('/api/tasks', { title: 'X', ownerId: depA.id, groupName: 'CNTT' });
+
+    expect((await as(depA).put(`/api/categories/${g.body.id}`, { name: 'Y' })).status).toBe(403);
+    expect((await as(head).put(`/api/categories/${tm.body.id}`, { name: 'Viễn thông' })).status).toBe(400);
+
+    const r1 = await as(head).put(`/api/categories/${g.body.id}`, { name: 'Công nghệ thông tin' });
+    expect(r1.body).toMatchObject({ name: 'Công nghệ thông tin', updated: 1 });
+    expect((await as(head).get(`/api/tasks/${t.body.id}`)).body.groupName).toBe('Công nghệ thông tin');
+
+    const r2 = await as(head).put(`/api/categories/${tm.body.id}`, { name: 'An toàn thông tin' });
+    expect(r2.body.updated).toBe(2); // depA + staffA thuộc bộ phận ATTT
+    expect((await as(head).get(`/api/users/${staffA.id}`)).body.team).toBe('An toàn thông tin');
+  });
+});

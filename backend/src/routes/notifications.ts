@@ -2,8 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { me } from '../lib/auth';
+import { config } from '../config';
 import { idParam, parse } from '../lib/validate';
-import { getVapid, isAllowedPushEndpoint, sendPushToUser } from '../services/push';
+import { checkPushConnectivity, deviceLabel, getVapid, isAllowedPushEndpoint, sendPushDetailed } from '../services/push';
+import { requirePasswordChanged, requireRole } from '../lib/auth';
+import { notFound } from '../lib/errors';
 
 export const notificationsRouter = Router();
 
@@ -73,7 +76,50 @@ pushRouter.post('/unsubscribe', async (req, res) => {
 /** Gửi thử tới mọi thiết bị của chính mình */
 pushRouter.post('/test', async (req, res) => {
   const userId = me(req).id;
-  const devices = await prisma.webPushSubscription.count({ where: { userId } });
-  const sent = await sendPushToUser(userId, { title: 'WorkPing', body: 'Thông báo thử nghiệm thành công 🎉', url: '/notifications', tag: 'test' });
-  res.json({ devices, sent });
+  const results = await sendPushDetailed(userId, { title: 'WorkPing', body: 'Thông báo thử nghiệm thành công 🎉', url: '/notifications', tag: 'test' });
+  res.json({ devices: results.length, sent: results.filter((r) => r.ok).length, results });
+});
+
+// ───────── Quản trị: chẩn đoán thông báo đẩy ─────────
+// /push nằm trước bước chặn mật khẩu tạm (để điện thoại đăng ký được) → các API quản trị phải tự chặn
+const adminOnly = [requirePasswordChanged, requireRole('ADMIN', 'HEAD')];
+
+/** Mọi nhân sự đang hoạt động + các thiết bị đã bật thông báo và kết quả gửi gần nhất */
+pushRouter.get('/admin/devices', ...adminOnly, async (_req, res) => {
+  const users = await prisma.user.findMany({
+    where: { status: 'ACTIVE' },
+    select: {
+      id: true,
+      code: true,
+      fullName: true,
+      role: true,
+      pushSubs: { select: { id: true, endpoint: true, userAgent: true, createdAt: true, updatedAt: true, lastOkAt: true, lastError: true, lastErrorAt: true } },
+    },
+    orderBy: { code: 'asc' },
+  });
+  res.json(
+    users.map(({ pushSubs, ...u }) => ({
+      ...u,
+      devices: pushSubs.map(({ endpoint, userAgent, ...d }) => ({ ...d, device: deviceLabel(userAgent, endpoint) })),
+    })),
+  );
+});
+
+/** Gửi thử tới mọi thiết bị của 1 nhân sự, trả về kết quả từng thiết bị */
+pushRouter.post('/admin/test', ...adminOnly, async (req, res) => {
+  const { userId } = parse(z.object({ userId: z.number().int().positive() }), req.body);
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+  if (!target) throw notFound();
+  const results = await sendPushDetailed(userId, {
+    title: 'WorkPing – thông báo thử',
+    body: `${me(req).fullName} gửi thử tới ${target.fullName}. Nhận được là thông báo đã hoạt động 🎉`,
+    url: '/notifications',
+    tag: 'admin-test',
+  });
+  res.json({ devices: results.length, sent: results.filter((r) => r.ok).length, results });
+});
+
+/** Máy chủ có ra được Internet tới dịch vụ push của Apple / Google / Mozilla không */
+pushRouter.post('/admin/connectivity', ...adminOnly, async (_req, res) => {
+  res.json({ proxy: config.pushProxy || null, vapidSubject: config.vapidSubject, results: await checkPushConnectivity() });
 });
