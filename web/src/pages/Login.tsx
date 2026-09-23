@@ -3,6 +3,7 @@ import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { Logo } from '../components/Logo';
 
 export default function Login() {
   const { login } = useAuth();
@@ -13,9 +14,9 @@ export default function Login() {
   return (
     <div style={{ minHeight: '100vh', boxSizing: 'border-box', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,#1f4e78,#2f75b5)', padding: 16 }}>
       <Card style={{ width: '100%', maxWidth: 380 }}>
-        <Typography.Title level={3} style={{ textAlign: 'center', marginBottom: 4 }}>
-          WorkPing
-        </Typography.Title>
+        <div style={{ textAlign: 'center', margin: '4px 0 8px' }}>
+          <Logo size={44} />
+        </div>
         <Typography.Paragraph type="secondary" style={{ textAlign: 'center' }}>
           Quản lý tiến độ & nhắc việc
         </Typography.Paragraph>

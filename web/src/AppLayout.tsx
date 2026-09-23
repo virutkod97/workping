@@ -15,6 +15,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { PushBanner } from './components/PushSetup';
+import { Logo } from './components/Logo';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { useAuth } from './auth';
@@ -73,7 +74,11 @@ export default function AppLayout() {
       }}
     />
   );
-  const brand = <div style={{ color: '#fff', fontWeight: 700, fontSize: 18, padding: '16px 24px' }}>⏰ WorkPing</div>;
+  const brand = (
+    <div style={{ padding: '14px 20px' }}>
+      <Logo size={32} dark />
+    </div>
+  );
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
