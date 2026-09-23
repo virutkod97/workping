@@ -38,7 +38,7 @@ export default function AppLayout() {
     { key: '/staff', icon: <TeamOutlined />, label: 'Nhân sự' },
     ...(canAssign ? [{ key: '/reports/cross-group', icon: <SwapOutlined />, label: 'Giao ngoài nhóm' }] : []),
     { key: '/notifications', icon: <BellOutlined />, label: <span>Thông báo {!!unread?.count && <Badge count={unread.count} size="small" style={{ marginLeft: 6 }} />}</span> },
-    ...(isManager ? [{ key: '/settings', icon: <SettingOutlined />, label: 'Cấu hình & Excel' }] : []),
+    ...(isManager ? [{ key: '/settings', icon: <SettingOutlined />, label: 'Cấu hình' }] : []),
   ];
   const selected = items.map((i) => i.key).filter((k) => (k === '/' ? loc.pathname === '/' : loc.pathname.startsWith(k)));
   const menu = (

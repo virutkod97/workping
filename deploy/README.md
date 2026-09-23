@@ -50,8 +50,6 @@ sudo apt-get install -y unzip && unzip workping.zip && cd workping*
 ```bash
 # Khoá Firebase để gửi push (Firebase Console → Project settings → Service accounts → Generate new private key)
 scp firebase-service-account.json user@IP_MAY_CHU:~
-# File Excel đang dùng để nhập dữ liệu ban đầu
-scp "Cong_cu_Quan_ly_Tien_do.xlsx" user@IP_MAY_CHU:~
 ```
 
 ## Bước 3 – Chạy cài đặt (1 lệnh)
@@ -59,9 +57,7 @@ scp "Cong_cu_Quan_ly_Tien_do.xlsx" user@IP_MAY_CHU:~
 Chỉ dùng trong mạng nội bộ, truy cập bằng IP:
 
 ```bash
-sudo bash deploy/install.sh \
-  --firebase ~/firebase-service-account.json \
-  --import ~/Cong_cu_Quan_ly_Tien_do.xlsx
+sudo bash deploy/install.sh --firebase ~/firebase-service-account.json
 ```
 
 Có tên miền + HTTPS tự động (Let's Encrypt, tự gia hạn):
@@ -69,8 +65,7 @@ Có tên miền + HTTPS tự động (Let's Encrypt, tự gia hạn):
 ```bash
 sudo bash deploy/install.sh \
   --domain workping.congty.vn --email it@congty.vn \
-  --firebase ~/firebase-service-account.json \
-  --import ~/Cong_cu_Quan_ly_Tien_do.xlsx
+  --firebase ~/firebase-service-account.json
 ```
 
 Tất cả tuỳ chọn:
@@ -80,7 +75,6 @@ Tất cả tuỳ chọn:
 | `--domain <tên-miền>` | Tên miền của hệ thống |
 | `--email <email>` | Kèm `--domain` để bật HTTPS |
 | `--firebase <file.json>` | Khoá service account Firebase (push) |
-| `--import <file.xlsx>` | Nhập dữ liệu từ file Excel cũ |
 | `--port <số>` | Cổng nội bộ của API (mặc định 4000) |
 | `--no-nginx` | Không cài nginx (khi đã có reverse proxy khác) |
 
@@ -98,9 +92,9 @@ Mất khoảng 3–5 phút. Cuối cùng script in ra:
 ## Bước 4 – Sau khi cài
 
 1. Mở địa chỉ web, đăng nhập `admin` với mật khẩu ở trên → hệ thống bắt đổi mật khẩu.
-2. Vào **Nhân sự** kiểm tra danh sách, **cấp** (Trưởng phòng/Phó phòng/Nhân viên) và **quản lý trực tiếp** của từng người.
-3. Báo cho mọi người: đăng nhập bằng **mã nhân sự viết thường** (vd `ns002`), mật khẩu mặc định `123456`, lần đầu phải đổi.
-4. Nếu chưa nhập Excel ở bước 3: **Cấu hình & Excel → Chọn file Excel**.
+2. **Cấu hình** → kiểm tra danh mục *Nhóm công việc* và *Bộ phận*.
+3. **Nhân sự → Thêm nhân sự**: tạo Trưởng phòng, các Phó trưởng phòng, rồi nhân viên — chọn **Cấp** và **Nhóm / quản lý trực tiếp** (nhân viên thuộc nhóm Phó trưởng phòng nào). Kiểm tra ở *Sơ đồ nhóm*.
+4. Báo cho mọi người: đăng nhập bằng **mã nhân sự viết thường** (vd `ns002`), mật khẩu mặc định `123456`, lần đầu phải đổi.
 5. Trên app mobile: *Cấu hình máy chủ* = `https://workping.congty.vn/api` (hoặc build app với `EXPO_PUBLIC_API_URL` này).
 6. Kiểm tra push: app → **Cá nhân → Gửi thông báo thử**. Kiểm tra máy chủ: `curl -s http://127.0.0.1:4000/api/health` phải có `"push":true`.
 
@@ -115,7 +109,7 @@ Mất khoảng 3–5 phút. Cuối cùng script in ra:
 | Khởi động lại | `sudo systemctl restart workping` |
 | Dừng / chạy | `sudo systemctl stop workping` / `sudo systemctl start workping` |
 | Sửa cấu hình | `sudo nano /etc/workping/workping.env` rồi `sudo systemctl restart workping` |
-| Gửi nhắc việc ngay | web → Cấu hình & Excel → *Gửi nhắc việc ngay* |
+| Gửi nhắc việc ngay | web → Cấu hình → *Gửi nhắc việc ngay* |
 
 Các cấu hình hay chỉnh trong `workping.env`:
 

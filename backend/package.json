@@ -4,13 +4,12 @@
   "description": "WorkPing - API quản lý tiến độ & nhắc việc",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "prisma generate && tsc -p tsconfig.json",
+    "build": "prisma generate && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "seed": "tsx src/scripts/seed.ts",
-    "import:excel": "tsx src/scripts/import-excel.ts",
     "test": "vitest run"
   },
   "license": "UNLICENSED",
@@ -25,7 +24,6 @@
     "firebase-admin": "^14.4.0",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.4.0",
     "node-cron": "^4.6.0",
     "zod": "^3.25.76"
   },
@@ -34,7 +32,6 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/multer": "^2.2.0",
     "@types/node": "^26.6.2",
     "@types/node-cron": "^3.0.11",
     "@types/supertest": "^7.2.1",

@@ -21,7 +21,6 @@ PORT=4000
 DOMAIN=""
 EMAIL=""
 FIREBASE_KEY=""
-IMPORT_XLSX=""
 NODE_MAJOR=22
 TZ_NAME="Asia/Ho_Chi_Minh"
 SKIP_NGINX=0
@@ -33,7 +32,6 @@ Cách dùng: sudo bash deploy/install.sh [tuỳ chọn]
   --domain <tên-miền>     Tên miền trỏ về máy chủ (bật HTTPS nếu có --email)
   --email <email>         Email đăng ký chứng chỉ Let's Encrypt
   --firebase <file.json>  File service account Firebase (để gửi push lên điện thoại)
-  --import <file.xlsx>    Nhập dữ liệu từ file Excel quản lý tiến độ cũ
   --port <số>             Cổng nội bộ của API (mặc định 4000)
   --no-nginx              Không cài/cấu hình nginx (tự dùng reverse proxy khác)
   -h, --help              Hiện hướng dẫn này
@@ -45,7 +43,6 @@ while [[ $# -gt 0 ]]; do
     --domain) DOMAIN="$2"; shift 2 ;;
     --email) EMAIL="$2"; shift 2 ;;
     --firebase) FIREBASE_KEY="$2"; shift 2 ;;
-    --import) IMPORT_XLSX="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --no-nginx) SKIP_NGINX=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -74,10 +71,7 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || warn "Script được viết cho Ubuntu, hệ điều hành hiện tại: ${PRETTY_NAME:-?}"
 [[ -z "$FIREBASE_KEY" || -f "$FIREBASE_KEY" ]] || die "Không thấy file Firebase: $FIREBASE_KEY"
-[[ -z "$IMPORT_XLSX" || -f "$IMPORT_XLSX" ]] || die "Không thấy file Excel: $IMPORT_XLSX"
-# Đổi sang đường dẫn tuyệt đối trước khi cd
 [[ -n "$FIREBASE_KEY" ]] && FIREBASE_KEY="$(realpath "$FIREBASE_KEY")"
-[[ -n "$IMPORT_XLSX" ]] && IMPORT_XLSX="$(realpath "$IMPORT_XLSX")"
 FIRST_INSTALL=0; [[ -f "$ENV_FILE" ]] || FIRST_INSTALL=1
 
 echo "${C_B}WorkPing — $([[ $FIRST_INSTALL == 1 ]] && echo 'CÀI ĐẶT MỚI' || echo 'NÂNG CẤP')${C_0}"
@@ -207,11 +201,6 @@ step "7/9 Cập nhật cấu trúc CSDL"
 run_env() { ( cd "$APP_DIR/backend" && sudo -u "$APP_USER" -H bash -c 'set -a; . "$0"; set +a; PATH=/usr/bin:/bin:$PATH; exec "$@"' "$ENV_FILE" "$@" ); }
 run_env npx prisma migrate deploy >/dev/null
 run_env node dist/scripts/seed.js
-if [[ -n "$IMPORT_XLSX" ]]; then
-  cp "$IMPORT_XLSX" /tmp/workping-import.xlsx && chmod 644 /tmp/workping-import.xlsx
-  run_env node dist/scripts/import-excel.js /tmp/workping-import.xlsx
-  rm -f /tmp/workping-import.xlsx
-fi
 ok "CSDL sẵn sàng"
 
 # ------------------------------ 8. Dịch vụ systemd ------------------------------

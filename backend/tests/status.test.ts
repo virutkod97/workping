@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { milestoneWarning, taskProgress, taskState } from '../src/lib/status';
-import { roleFromTitle } from '../src/services/excel';
 
 const now = new Date('2026-09-23T03:00:00Z'); // 10h sáng giờ VN
 const d = (s: string) => new Date(`${s}T00:00:00Z`);
@@ -39,13 +38,3 @@ describe('quy tắc cảnh báo giống file Excel', () => {
   });
 });
 
-describe('cấp theo chức danh khi nhập Excel', () => {
-  it('Phó trưởng phòng không bị nhầm thành Trưởng phòng', () => {
-    expect(roleFromTitle('Trưởng phòng')).toBe('HEAD');
-    expect(roleFromTitle('Phó trưởng phòng')).toBe('DEPUTY');
-    expect(roleFromTitle('Phó Trưởng Phòng')).toBe('DEPUTY');
-    expect(roleFromTitle('Phó phòng')).toBe('DEPUTY');
-    expect(roleFromTitle('Chuyên viên')).toBe('STAFF');
-    expect(roleFromTitle(null)).toBe('STAFF');
-  });
-});

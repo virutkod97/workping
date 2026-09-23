@@ -22,14 +22,14 @@ mobile/    App điện thoại (Expo / React Native) — Android + iOS, nhận p
 | `VIEC_CAN_XU_LY` | **Việc của tôi**: các mốc được giao cho mình, sắp xếp quá hạn → sắp đến hạn |
 | `DANH_MUC` | **Nhân sự** + **Cấu hình** (nhóm công việc, bộ phận) |
 
+File Excel đang dùng là căn cứ để thiết kế dữ liệu; phần mềm thay thế hoàn toàn file đó (nhập liệu trực tiếp trên web/app), không nhập file Excel vào.
+
 Công thức giữ nguyên như Excel:
 
 - **% tiến độ** = Σ(trọng số × % mốc) / Σ trọng số (mốc “Hoàn thành” = 100%).
 - **Tình trạng công việc**: 100% → *Đã hoàn thành*; quá hạn cuối → *Quá hạn*; còn ≤ 3 ngày → *Sắp đến hạn*; 0% → *Chưa thực hiện*; còn lại *Đang thực hiện*.
 - **Cảnh báo mốc**: *QUÁ HẠN* / *SẮP ĐẾN HẠN* (≤ 3 ngày) / *Theo kế hoạch* / *Hoàn thành*.
 - Số ngày cảnh báo chỉnh bằng biến `WARN_DAYS`. Ngày tính theo giờ Việt Nam.
-
-**Nhập dữ liệu cũ**: web → *Cấu hình & Excel* → *Chọn file Excel* (hoặc `npm run import:excel -- file.xlsx`). Đọc `DANH_MUC`, `CONG_VIEC`, `MOC_CONG_VIEC`. Nhập lại nhiều lần không bị trùng. Người có tên trong công việc/mốc mà chưa có trong danh sách nhân sự sẽ được tạo mới và báo lại. Sơ đồ báo cáo được tự lập: Phó phòng → Trưởng phòng; Nhân viên → Phó phòng cùng bộ phận (không có thì Trưởng phòng). Có thể chỉnh lại ở trang Nhân sự.
 
 **Xuất báo cáo**: nút *Xuất Excel* tạo file cùng cấu trúc (DASHBOARD, CONG_VIEC, MOC_CONG_VIEC, VIEC_CAN_XU_LY, NHAN_SU), có tô màu cảnh báo.
 
@@ -41,7 +41,7 @@ Công thức giữ nguyên như Excel:
 | **Phó trưởng phòng** | Việc của mình, của nhóm mình và việc mình đã giao đi | Bản thân, nhân sự **trong nhóm**; nhân viên **nhóm khác** (có cảnh báo) | Việc được giao/đã giao hoặc của nhóm mình: sửa, chia mốc, giao mốc, **giao tiếp** |
 | **Nhân viên** | Việc mình tham gia | Chỉ bản thân (tự tạo việc riêng) | Cập nhật tiến độ, ghi chú các mốc được giao; bình luận |
 
-**Nhóm của Phó trưởng phòng** = các nhân sự có *Nhóm / quản lý trực tiếp* là Phó trưởng phòng đó (trang Nhân sự → Sơ đồ nhóm). Khi nhập Excel, nhân viên tự được xếp vào nhóm của Phó trưởng phòng cùng *Bộ phận*.
+**Nhóm của Phó trưởng phòng** = các nhân sự có *Nhóm / quản lý trực tiếp* là Phó trưởng phòng đó (trang Nhân sự → Sơ đồ nhóm).
 
 Luồng điển hình:
 
@@ -82,7 +82,6 @@ cp .env.example .env          # sửa DATABASE_URL, JWT_SECRET...
 npm install
 npx prisma migrate deploy
 npm run seed                  # tạo admin / admin@123 và danh mục mặc định
-npm run import:excel -- "../Cong_cu_Quan_ly_Tien_do.xlsx"   # (tuỳ chọn) nhập dữ liệu cũ
 npm run dev                   # http://localhost:4000/api
 
 # Web (terminal khác)
@@ -91,7 +90,7 @@ npm install
 npm run dev                   # http://localhost:5173
 ```
 
-Đăng nhập: `admin / admin@123` hoặc mã nhân sự (vd `ns001`) với mật khẩu mặc định `123456`. Lần đầu đăng nhập bắt buộc đổi mật khẩu.
+Đăng nhập: `admin / admin@123` → vào **Nhân sự** tạo tài khoản Trưởng phòng, Phó trưởng phòng, nhân viên (chọn *Nhóm / quản lý trực tiếp*). Nhân sự đăng nhập bằng mã nhân sự viết thường (vd `ns001`), mật khẩu mặc định `123456`, lần đầu bắt buộc đổi.
 
 Kiểm thử backend: `cd backend && npm test` (cần DB `workping_test`, xem `backend/vitest.config.mts`).
 
@@ -111,7 +110,7 @@ Các file khoá Firebase đã được `.gitignore`, **không commit**.
 
 ```bash
 sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn \
-  --firebase ~/firebase-service-account.json --import ~/Cong_cu_Quan_ly_Tien_do.xlsx
+  --firebase ~/firebase-service-account.json
 ```
 
 Hướng dẫn chi tiết từng bước, nâng cấp, sao lưu/khôi phục, xử lý sự cố: [`deploy/README.md`](deploy/README.md).
@@ -138,5 +137,5 @@ Xem [`mobile/README.md`](mobile/README.md): build Android (APK/AAB) & iOS bằng
 | GET | `/api/dashboard`, `/api/dashboard/my-work` | Tổng quan, việc của tôi |
 | GET/POST | `/api/notifications…` | Thông báo, đánh dấu đã đọc |
 | POST/DELETE | `/api/devices` | Đăng ký / huỷ FCM token của thiết bị |
-| POST | `/api/excel/import`, GET `/api/excel/export` | Nhập / xuất Excel |
+| GET | `/api/excel/export` | Xuất báo cáo Excel |
 | POST | `/api/admin/run-reminders` | Chạy nhắc việc ngay |
