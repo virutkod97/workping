@@ -5,8 +5,10 @@
 #  Chạy từ thư mục mã nguồn đã tải về:
 #     sudo bash deploy/install.sh                                   # truy cập bằng IP, HTTP
 #     sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn   # có HTTPS
+#     sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn --https-port 8443
 #
-#  Chạy lại bất cứ lúc nào để NÂNG CẤP: giữ nguyên dữ liệu, mật khẩu, cấu hình.
+#  Chạy lại bất cứ lúc nào để NÂNG CẤP: giữ nguyên dữ liệu, mật khẩu, cấu hình
+#  (tên miền, cổng, HTTPS lần trước được nhớ trong /etc/workping/install.conf).
 # ============================================================================
 set -Eeuo pipefail
 
@@ -23,6 +25,22 @@ EMAIL=""
 NODE_MAJOR=22
 TZ_NAME="Asia/Ho_Chi_Minh"
 SKIP_NGINX=0
+HTTPS_PORT=443
+SSL_CERT=""
+SSL_KEY=""
+INSTALL_CONF=$CONF_DIR/install.conf
+ACME_ROOT=/var/www/letsencrypt
+
+# Nhớ lựa chọn của lần cài trước → chạy lại / update.sh không cần gõ lại tham số
+[[ -f "$ENV_FILE" ]] && PORT=$(grep -E '^PORT=' "$ENV_FILE" | cut -d= -f2 || echo 4000)
+if [[ -f "$INSTALL_CONF" ]]; then
+  # shellcheck source=/dev/null
+  . "$INSTALL_CONF"
+elif [[ -f /etc/nginx/sites-available/workping ]]; then
+  # Bản cài cũ (chưa có install.conf): lấy lại tên miền từ cấu hình nginx
+  _sn=$(awk '/server_name/ {gsub(";","",$2); print $2; exit}' /etc/nginx/sites-available/workping)
+  [[ -n "$_sn" && "$_sn" != "_" ]] && DOMAIN=$_sn
+fi
 
 usage() {
   cat <<USAGE
@@ -30,6 +48,9 @@ Cách dùng: sudo bash deploy/install.sh [tuỳ chọn]
 
   --domain <tên-miền>     Tên miền trỏ về máy chủ (bật HTTPS nếu có --email)
   --email <email>         Email đăng ký chứng chỉ Let's Encrypt
+  --https-port <số>       Cổng HTTPS công khai (mặc định 443), VD 8443
+  --ssl-cert <file>       Dùng chứng chỉ có sẵn (fullchain .pem/.crt) thay cho Let's Encrypt
+  --ssl-key <file>        Khoá riêng của chứng chỉ trên
   --port <số>             Cổng nội bộ của API (mặc định 4000)
   --no-nginx              Không cài/cấu hình nginx (tự dùng reverse proxy khác)
   -h, --help              Hiện hướng dẫn này
@@ -42,6 +63,9 @@ while [[ $# -gt 0 ]]; do
     --email) EMAIL="$2"; shift 2 ;;
     --firebase) warn "Không còn dùng Firebase (thông báo đẩy dùng Web Push) — bỏ qua $2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
+    --https-port) HTTPS_PORT="$2"; shift 2 ;;
+    --ssl-cert) SSL_CERT="$2"; shift 2 ;;
+    --ssl-key) SSL_KEY="$2"; shift 2 ;;
     --no-nginx) SKIP_NGINX=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Tuỳ chọn không hợp lệ: $1"; usage; exit 1 ;;
@@ -69,6 +93,19 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || warn "Script được viết cho Ubuntu, hệ điều hành hiện tại: ${PRETTY_NAME:-?}"
 FIRST_INSTALL=0; [[ -f "$ENV_FILE" ]] || FIRST_INSTALL=1
+[[ "$HTTPS_PORT" =~ ^[0-9]+$ && $HTTPS_PORT -ge 1 && $HTTPS_PORT -le 65535 ]] || die "--https-port không hợp lệ: $HTTPS_PORT"
+[[ "$HTTPS_PORT" != "80" && "$HTTPS_PORT" != "$PORT" ]] || die "--https-port phải khác 80 và khác cổng nội bộ $PORT"
+if [[ -n "$SSL_CERT$SSL_KEY" ]]; then
+  [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]] || die "Không thấy file chứng chỉ/khoá: --ssl-cert '$SSL_CERT' --ssl-key '$SSL_KEY'"
+  SSL_CERT=$(readlink -f "$SSL_CERT"); SSL_KEY=$(readlink -f "$SSL_KEY")
+fi
+# Cách lấy chứng chỉ: own = file có sẵn, le = Let's Encrypt, rỗng = chỉ HTTP
+TLS_MODE=""
+if [[ $SKIP_NGINX == 0 ]]; then
+  if [[ -n "$SSL_CERT" ]]; then TLS_MODE=own
+  elif [[ -n "$DOMAIN" ]] && ! is_ip "$DOMAIN" && [[ -n "$EMAIL" || -d /etc/letsencrypt/live/$DOMAIN ]]; then TLS_MODE=le; fi
+fi
+HTTPS_SUFFIX=""; [[ "$HTTPS_PORT" == 443 ]] || HTTPS_SUFFIX=":$HTTPS_PORT"
 if [[ -n "$EMAIL" ]]; then VAPID_SUBJECT="mailto:$EMAIL"
 elif [[ -n "$DOMAIN" ]] && ! is_ip "$DOMAIN"; then VAPID_SUBJECT="https://$DOMAIN"
 else VAPID_SUBJECT="mailto:admin@example.com"; fi
@@ -77,6 +114,7 @@ echo "${C_B}WorkPing — $([[ $FIRST_INSTALL == 1 ]] && echo 'CÀI ĐẶT MỚI'
 echo "  Mã nguồn : $SRC_DIR"
 echo "  Cài vào  : $APP_DIR"
 echo "  Tên miền : ${DOMAIN:-(không — truy cập bằng IP)}"
+[[ -n "$TLS_MODE" ]] && echo "  HTTPS    : cổng $HTTPS_PORT ($([[ $TLS_MODE == own ]] && echo "chứng chỉ có sẵn" || echo "Let's Encrypt"))"
 
 # ------------------------------ 1. Gói hệ thống ------------------------------
 step "1/9 Cài gói hệ thống"
@@ -84,7 +122,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq || warn "apt-get update báo lỗi ở một số kho phần mềm — vẫn tiếp tục"
 PKGS=(ca-certificates curl gnupg rsync postgresql postgresql-contrib openssl tzdata)
 [[ $SKIP_NGINX == 1 ]] || PKGS+=(nginx)
-if [[ -n "$DOMAIN" && -n "$EMAIL" && $SKIP_NGINX == 0 ]] && ! is_ip "$DOMAIN"; then PKGS+=(certbot python3-certbot-nginx); fi
+[[ "$TLS_MODE" == le ]] && PKGS+=(certbot)
 apt-get install -y -qq "${PKGS[@]}" >/dev/null
 ok "Đã cài: ${PKGS[*]}"
 
@@ -184,6 +222,17 @@ if [[ -n "$EMAIL" ]]; then
   else echo "VAPID_SUBJECT=mailto:$EMAIL" >> "$ENV_FILE"; fi
 fi
 
+cat >"$INSTALL_CONF" <<CONF
+# Tham số cài đặt lần gần nhất (install.sh / update.sh tự đọc lại). Đổi bằng cách chạy lại install.sh với tham số mới.
+DOMAIN="$DOMAIN"
+EMAIL="$EMAIL"
+HTTPS_PORT="$HTTPS_PORT"
+SSL_CERT="$SSL_CERT"
+SSL_KEY="$SSL_KEY"
+SKIP_NGINX="$SKIP_NGINX"
+CONF
+chmod 640 "$INSTALL_CONF"
+
 # ------------------------------ 6. Mã nguồn & build ------------------------------
 step "6/9 Chép mã nguồn & build (vài phút)"
 rsync -a --delete \
@@ -223,24 +272,52 @@ ok "Dịch vụ $APP_NAME đang chạy: $(curl -fsS "http://127.0.0.1:$PORT/api/
 
 # ------------------------------ 9. Nginx + HTTPS ------------------------------
 step "9/9 Nginx"
+SITE=/etc/nginx/sites-available/$APP_NAME
+write_site() { # $1 = template, $2/$3 = cert/key
+  sed -e "s#@SERVER_NAME@#${DOMAIN:-_}#g" -e "s#@PORT@#$PORT#g" -e "s#@HTTPS_PORT@#$HTTPS_PORT#g" \
+      -e "s#@HTTPS_SUFFIX@#$HTTPS_SUFFIX#g" -e "s#@ACME_ROOT@#$ACME_ROOT#g" \
+      -e "s#@SSL_CERT@#${2:-}#g" -e "s#@SSL_KEY@#${3:-}#g" "$APP_DIR/deploy/$1" > "$SITE"
+  # Máy chủ tắt IPv6 → bỏ dòng listen [::]
+  [[ -f /proc/net/if_inet6 ]] || sed -i '/listen \[::\]/d' "$SITE"
+  nginx -t -q
+  systemctl reload nginx 2>/dev/null || service nginx reload >/dev/null 2>&1 || service nginx start >/dev/null
+}
 if [[ $SKIP_NGINX == 1 ]]; then
   warn "Bỏ qua nginx — API/web lắng nghe tại 127.0.0.1:$PORT"
 else
-  sed -e "s#@SERVER_NAME@#${DOMAIN:-_}#g" -e "s#@PORT@#$PORT#g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/$APP_NAME
-  # Máy chủ tắt IPv6 → bỏ dòng listen [::]
-  [[ -f /proc/net/if_inet6 ]] || sed -i '/listen \[::\]/d' /etc/nginx/sites-available/$APP_NAME
-  ln -sf /etc/nginx/sites-available/$APP_NAME /etc/nginx/sites-enabled/$APP_NAME
+  install -d -m 755 "$ACME_ROOT"
+  ln -sf "$SITE" /etc/nginx/sites-enabled/$APP_NAME
   [[ -z "$DOMAIN" ]] && rm -f /etc/nginx/sites-enabled/default
-  nginx -t -q
   systemctl enable --now nginx >/dev/null 2>&1 || true
-  systemctl reload nginx 2>/dev/null || service nginx reload >/dev/null 2>&1 || service nginx start >/dev/null
-  if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then ufw allow 'Nginx Full' >/dev/null; ok "Đã mở tường lửa (80/443)"; fi
-  if [[ -n "$DOMAIN" && -n "$EMAIL" ]] && ! is_ip "$DOMAIN"; then
-    if certbot --nginx -d "$DOMAIN" -m "$EMAIL" --agree-tos --non-interactive --redirect; then
-      ok "Đã bật HTTPS cho $DOMAIN (tự gia hạn)"
+  # Bước 1: cấu hình HTTP (có chỗ cho Let's Encrypt xác minh tên miền)
+  write_site nginx.conf
+  if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then
+    ufw allow 80/tcp >/dev/null; [[ -n "$TLS_MODE" ]] && ufw allow "$HTTPS_PORT"/tcp >/dev/null
+    ok "Đã mở tường lửa (80$([[ -n "$TLS_MODE" ]] && echo "/$HTTPS_PORT"))"
+  fi
+  # Bước 2: chứng chỉ + cấu hình HTTPS
+  CERT=""; KEY=""
+  if [[ $TLS_MODE == own ]]; then
+    CERT=$SSL_CERT; KEY=$SSL_KEY
+  elif [[ $TLS_MODE == le ]]; then
+    LE_ARGS=(certonly --webroot -w "$ACME_ROOT" -d "$DOMAIN" --agree-tos --non-interactive --keep-until-expiring
+             --deploy-hook "systemctl reload nginx")
+    if [[ -n "$EMAIL" ]]; then LE_ARGS+=(-m "$EMAIL"); else LE_ARGS+=(--register-unsafely-without-email); fi
+    if certbot "${LE_ARGS[@]}"; then
+      CERT=/etc/letsencrypt/live/$DOMAIN/fullchain.pem; KEY=/etc/letsencrypt/live/$DOMAIN/privkey.pem
+    elif [[ -f /etc/letsencrypt/live/$DOMAIN/fullchain.pem ]]; then
+      warn "Không gia hạn được chứng chỉ lúc này — tạm dùng chứng chỉ hiện có"
+      CERT=/etc/letsencrypt/live/$DOMAIN/fullchain.pem; KEY=/etc/letsencrypt/live/$DOMAIN/privkey.pem
     else
-      warn "Chưa lấy được chứng chỉ HTTPS — kiểm tra tên miền đã trỏ về IP máy chủ, rồi chạy lại script"
+      warn "Chưa lấy được chứng chỉ HTTPS. Let's Encrypt cần truy cập http://$DOMAIN (cổng 80) từ Internet."
+      warn "Kiểm tra tên miền trỏ đúng IP và cổng 80 đã mở/NAT về máy chủ, rồi chạy lại script."
     fi
+  fi
+  if [[ -n "$CERT" ]]; then
+    write_site nginx-ssl.conf "$CERT" "$KEY"
+    ok "Đã bật HTTPS: https://$DOMAIN$HTTPS_SUFFIX$([[ $TLS_MODE == le ]] && echo " (tự gia hạn)")"
+  else
+    TLS_MODE=""
   fi
   ok "Nginx đã cấu hình"
 fi
@@ -248,7 +325,7 @@ fi
 # ------------------------------ Kết quả ------------------------------
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 if [[ $SKIP_NGINX == 1 ]]; then URL="http://127.0.0.1:$PORT"
-elif [[ -n "$DOMAIN" && -n "$EMAIL" ]] && ! is_ip "$DOMAIN"; then URL="https://$DOMAIN"
+elif [[ -n "$TLS_MODE" ]]; then URL="https://${DOMAIN:-$(hostname -I | awk '{print $1}')}$HTTPS_SUFFIX"
 else URL="http://${DOMAIN:-$IP}"; fi
 
 echo
@@ -264,5 +341,5 @@ echo "  Sao lưu         : $BACKUP_DIR (tự động 1h sáng hằng ngày)"
 if [[ "$URL" != https://* ]]; then
   echo
   echo "  ${C_WARN}${C_B}Lưu ý: điện thoại chỉ nhận thông báo đẩy khi truy cập bằng HTTPS.${C_0}"
-  echo "  ${C_WARN}Chạy lại với --domain <tên-miền> --email <email> để bật HTTPS (tên miền phải trỏ về máy chủ).${C_0}"
+  echo "  ${C_WARN}Chạy lại với --domain <tên-miền> --email <email> [--https-port <cổng>] để bật HTTPS.${C_0}"
 fi

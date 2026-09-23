@@ -24,7 +24,7 @@ Trình duyệt / app trên MH chính ──HTTPS──▶ nginx :80/:443 ──�
 
 - Ubuntu Server **22.04** hoặc **24.04** (64-bit), tối thiểu 2 CPU / 2 GB RAM / 20 GB ổ đĩa.
 - Có quyền `sudo` và máy chủ ra được Internet (tải gói apt, npm, Node.js). Nếu đi qua proxy, đặt trước: `export https_proxy=http://proxy:port http_proxy=http://proxy:port` rồi chạy script bằng `sudo -E`.
-- Muốn có HTTPS (bắt buộc khi dùng app iOS ngoài mạng nội bộ): một **tên miền** đã trỏ bản ghi A về IP máy chủ, mở cổng **80** và **443**.
+- Muốn có HTTPS (bắt buộc khi dùng app iOS ngoài mạng nội bộ): một **tên miền** đã trỏ bản ghi A về IP máy chủ, mở cổng **80** và **443** (hoặc một cổng HTTPS khác, xem [HTTPS cổng khác 443](#https-cổng-khác-443)).
 
 ## Bước 1 – Đưa mã nguồn lên máy chủ
 
@@ -64,8 +64,35 @@ Tất cả tuỳ chọn:
 |---|---|
 | `--domain <tên-miền>` | Tên miền của hệ thống |
 | `--email <email>` | Kèm `--domain` để bật HTTPS; cũng dùng làm liên hệ cho dịch vụ Web Push |
+| `--https-port <số>` | Cổng HTTPS công khai (mặc định 443), VD `8443` |
+| `--ssl-cert <file>` `--ssl-key <file>` | Dùng chứng chỉ có sẵn (VD chứng chỉ wildcard của công ty) thay cho Let's Encrypt |
 | `--port <số>` | Cổng nội bộ của API (mặc định 4000) |
 | `--no-nginx` | Không cài nginx (khi đã có reverse proxy khác) |
+
+Các tham số được nhớ trong `/etc/workping/install.conf`: lần sau chạy `update.sh` hoặc `install.sh` không cần gõ lại.
+
+### HTTPS cổng khác 443
+
+Dùng được với bất kỳ cổng nào, VD **8443**. Thông báo đẩy vẫn chạy bình thường, cả trên iPhone. Người dùng truy cập bằng `https://workping.congty.vn:8443`.
+
+**Cách 1 – Let's Encrypt (miễn phí, tự gia hạn).** Cổng **80** vẫn phải mở từ Internet để Let's Encrypt xác minh tên miền (cổng 80 chỉ dùng để xác minh và chuyển hướng sang HTTPS):
+
+```bash
+sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn --https-port 8443
+```
+
+Mở / NAT trên tường lửa, router: `80 → máy chủ:80` và `8443 → máy chủ:8443`.
+
+**Cách 2 – chứng chỉ có sẵn** (không cần cổng 80). Dùng khi cổng 80 bị chặn, hoặc công ty đã có chứng chỉ, VD `*.congty.vn`:
+
+```bash
+sudo bash deploy/install.sh --domain workping.congty.vn --https-port 8443 \
+  --ssl-cert /etc/ssl/congty/fullchain.pem --ssl-key /etc/ssl/congty/privkey.pem
+```
+
+File `--ssl-cert` phải chứa **cả chuỗi chứng chỉ trung gian** (fullchain), nếu không iPhone/Android sẽ báo không an toàn. Khi chứng chỉ được thay mới, chép đè file cũ rồi chạy `sudo systemctl reload nginx`.
+
+> Nếu chặn cả cổng 80 mà không có chứng chỉ sẵn: lấy chứng chỉ Let's Encrypt qua DNS bằng `sudo certbot certonly --manual --preferred-challenges dns -d workping.congty.vn` (thêm bản ghi TXT theo hướng dẫn hiện ra), rồi dùng Cách 2 với `/etc/letsencrypt/live/workping.congty.vn/fullchain.pem` và `privkey.pem`. Cách này **không tự gia hạn**, phải làm lại mỗi 90 ngày.
 
 Mất khoảng 3–5 phút. Cuối cùng script in ra:
 
@@ -138,7 +165,7 @@ sudo bash deploy/restore.sh /var/backups/workping/workping-20260923-010000.dump
 |---|---|
 | Script báo lỗi giữa chừng | Sửa theo thông báo rồi chạy lại **đúng lệnh cũ** — script chạy lại an toàn |
 | Web báo 502 Bad Gateway | `sudo systemctl status workping` và `sudo journalctl -u workping -n 100` |
-| Không lấy được chứng chỉ HTTPS | Kiểm tra tên miền trỏ đúng IP (`dig +short tên-miền`), mở cổng 80/443, chạy lại script |
+| Không lấy được chứng chỉ HTTPS | Kiểm tra tên miền trỏ đúng IP (`dig +short tên-miền`), cổng **80** mở từ Internet (kể cả khi dùng `--https-port`), chạy lại script. Không mở được cổng 80 → dùng `--ssl-cert/--ssl-key` |
 | Không có nút *Bật thông báo* | Phải truy cập bằng **https://** (không phải http://IP). iPhone: phải mở từ biểu tượng trên màn hình chính, iOS ≥ 16.4 |
 | Bật rồi nhưng không nhận push | Bấm *Gửi thông báo thử*; xem log `sudo journalctl -u workping | grep push`. Máy chủ phải ra được Internet tới `web.push.apple.com`, `fcm.googleapis.com` (cổng 443) — nếu đi qua proxy, thêm `PUSH_PROXY=http://proxy:port` vào `/etc/workping/workping.env` rồi restart |
 | iPhone lâu lâu không nhận | Kiểm tra *Cài đặt → Thông báo → WorkPing*; chế độ Tập trung/Không làm phiền có thể chặn |
@@ -191,11 +218,14 @@ sudo -u workping -H bash -c 'set -a; . /etc/workping/workping.env; set +a; npx p
 # 6. Dịch vụ systemd: copy deploy/workping.service vào /etc/systemd/system/ và thay các biến @...@
 sudo systemctl daemon-reload && sudo systemctl enable --now workping
 
-# 7. Nginx: copy deploy/nginx.conf vào /etc/nginx/sites-available/workping, thay @SERVER_NAME@ @PORT@
+# 7. Nginx: copy deploy/nginx.conf vào /etc/nginx/sites-available/workping, thay @SERVER_NAME@ @PORT@ @ACME_ROOT@ (/var/www/letsencrypt)
+sudo mkdir -p /var/www/letsencrypt
 sudo ln -s /etc/nginx/sites-available/workping /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
-# 8. HTTPS
-sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d workping.congty.vn -m it@congty.vn --agree-tos --redirect
+# 8. HTTPS: lấy chứng chỉ, rồi thay cấu hình bằng deploy/nginx-ssl.conf
+#    (@HTTPS_PORT@ = 443 hoặc 8443…, @HTTPS_SUFFIX@ = rỗng hoặc :8443, @SSL_CERT@ @SSL_KEY@ = đường dẫn chứng chỉ)
+sudo apt-get install -y certbot
+sudo certbot certonly --webroot -w /var/www/letsencrypt -d workping.congty.vn -m it@congty.vn --agree-tos \
+  --deploy-hook "systemctl reload nginx"
 ```
