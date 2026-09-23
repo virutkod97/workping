@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+# ============================================================================
+#  WorkPing — cài đặt / nâng cấp 1 lệnh trên Ubuntu 22.04 / 24.04 (không Docker)
+#
+#  Chạy từ thư mục mã nguồn đã tải về:
+#     sudo bash deploy/install.sh                                   # truy cập bằng IP, HTTP
+#     sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn   # có HTTPS
+#
+#  Chạy lại bất cứ lúc nào để NÂNG CẤP: giữ nguyên dữ liệu, mật khẩu, cấu hình.
+# ============================================================================
+set -Eeuo pipefail
+
+# ----------------------------- Tham số mặc định -----------------------------
+APP_NAME=workping
+APP_USER=workping
+APP_DIR=/opt/workping
+CONF_DIR=/etc/workping
+ENV_FILE=$CONF_DIR/workping.env
+BACKUP_DIR=/var/backups/workping
+PORT=4000
+DOMAIN=""
+EMAIL=""
+FIREBASE_KEY=""
+IMPORT_XLSX=""
+NODE_MAJOR=22
+TZ_NAME="Asia/Ho_Chi_Minh"
+SKIP_NGINX=0
+
+usage() {
+  cat <<USAGE
+Cách dùng: sudo bash deploy/install.sh [tuỳ chọn]
+
+  --domain <tên-miền>     Tên miền trỏ về máy chủ (bật HTTPS nếu có --email)
+  --email <email>         Email đăng ký chứng chỉ Let's Encrypt
+  --firebase <file.json>  File service account Firebase (để gửi push lên điện thoại)
+  --import <file.xlsx>    Nhập dữ liệu từ file Excel quản lý tiến độ cũ
+  --port <số>             Cổng nội bộ của API (mặc định 4000)
+  --no-nginx              Không cài/cấu hình nginx (tự dùng reverse proxy khác)
+  -h, --help              Hiện hướng dẫn này
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --domain) DOMAIN="$2"; shift 2 ;;
+    --email) EMAIL="$2"; shift 2 ;;
+    --firebase) FIREBASE_KEY="$2"; shift 2 ;;
+    --import) IMPORT_XLSX="$2"; shift 2 ;;
+    --port) PORT="$2"; shift 2 ;;
+    --no-nginx) SKIP_NGINX=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Tuỳ chọn không hợp lệ: $1"; usage; exit 1 ;;
+  esac
+done
+
+# ------------------------------- Tiện ích in -------------------------------
+C_OK=$'\e[32m'; C_WARN=$'\e[33m'; C_ERR=$'\e[31m'; C_B=$'\e[1m'; C_0=$'\e[0m'
+step() { echo; echo "${C_B}==> $*${C_0}"; }
+ok()   { echo "${C_OK}✔${C_0} $*"; }
+warn() { echo "${C_WARN}!${C_0} $*"; }
+die()  { echo "${C_ERR}✘ $*${C_0}" >&2; exit 1; }
+trap 'die "Lỗi ở dòng $LINENO: $BASH_COMMAND"' ERR
+
+# Giữ các biến proxy (máy chủ trong mạng nội bộ đi Internet qua proxy) khi chạy bằng user dịch vụ
+PROXY_VARS=HTTP_PROXY,HTTPS_PROXY,NO_PROXY,http_proxy,https_proxy,no_proxy,npm_config_proxy,npm_config_https_proxy,npm_config_noproxy,npm_config_registry,NODE_EXTRA_CA_CERTS
+as_app() { sudo -u "$APP_USER" -H --preserve-env="$PROXY_VARS" env PATH="/usr/bin:/bin:$PATH" "$@"; }
+rand() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}" || true; }
+is_ip() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
+
+# ------------------------------- Kiểm tra --------------------------------
+[[ $EUID -eq 0 ]] || die "Cần chạy bằng quyền root: sudo bash deploy/install.sh"
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[[ -f "$SRC_DIR/backend/package.json" && -f "$SRC_DIR/web/package.json" ]] || die "Không thấy mã nguồn tại $SRC_DIR"
+. /etc/os-release
+[[ "${ID:-}" == "ubuntu" ]] || warn "Script được viết cho Ubuntu, hệ điều hành hiện tại: ${PRETTY_NAME:-?}"
+[[ -z "$FIREBASE_KEY" || -f "$FIREBASE_KEY" ]] || die "Không thấy file Firebase: $FIREBASE_KEY"
+[[ -z "$IMPORT_XLSX" || -f "$IMPORT_XLSX" ]] || die "Không thấy file Excel: $IMPORT_XLSX"
+# Đổi sang đường dẫn tuyệt đối trước khi cd
+[[ -n "$FIREBASE_KEY" ]] && FIREBASE_KEY="$(realpath "$FIREBASE_KEY")"
+[[ -n "$IMPORT_XLSX" ]] && IMPORT_XLSX="$(realpath "$IMPORT_XLSX")"
+FIRST_INSTALL=0; [[ -f "$ENV_FILE" ]] || FIRST_INSTALL=1
+
+echo "${C_B}WorkPing — $([[ $FIRST_INSTALL == 1 ]] && echo 'CÀI ĐẶT MỚI' || echo 'NÂNG CẤP')${C_0}"
+echo "  Mã nguồn : $SRC_DIR"
+echo "  Cài vào  : $APP_DIR"
+echo "  Tên miền : ${DOMAIN:-(không — truy cập bằng IP)}"
+
+# ------------------------------ 1. Gói hệ thống ------------------------------
+step "1/9 Cài gói hệ thống"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq || warn "apt-get update báo lỗi ở một số kho phần mềm — vẫn tiếp tục"
+PKGS=(ca-certificates curl gnupg rsync postgresql postgresql-contrib openssl tzdata)
+[[ $SKIP_NGINX == 1 ]] || PKGS+=(nginx)
+if [[ -n "$DOMAIN" && -n "$EMAIL" && $SKIP_NGINX == 0 ]] && ! is_ip "$DOMAIN"; then PKGS+=(certbot python3-certbot-nginx); fi
+apt-get install -y -qq "${PKGS[@]}" >/dev/null
+ok "Đã cài: ${PKGS[*]}"
+
+# ------------------------------ 2. Node.js ------------------------------
+step "2/9 Node.js $NODE_MAJOR"
+# Dùng Node hệ thống (/usr/bin/node) để dịch vụ systemd và bước build dùng cùng một phiên bản
+CUR_NODE=$(/usr/bin/node -v 2>/dev/null | sed 's/^v//; s/\..*//' || true)
+install_node_tarball() {
+  # Dự phòng khi không truy cập được kho NodeSource: tải bản chính thức từ nodejs.org
+  local arch ver
+  case "$(uname -m)" in x86_64) arch=x64 ;; aarch64) arch=arm64 ;; *) die "Kiến trúc CPU không hỗ trợ: $(uname -m)" ;; esac
+  ver=$(curl -fsSL https://nodejs.org/dist/index.json | grep -o "\"version\":\"v${NODE_MAJOR}\.[0-9.]*\"" | head -1 | cut -d'"' -f4)
+  [[ -n "$ver" ]] || die "Không lấy được phiên bản Node.js từ nodejs.org"
+  rm -rf /usr/local/lib/nodejs && mkdir -p /usr/local/lib/nodejs
+  curl -fsSL "https://nodejs.org/dist/$ver/node-$ver-linux-$arch.tar.xz" | tar -xJ -C /usr/local/lib/nodejs --strip-components=1
+  for b in node npm npx; do ln -sf /usr/local/lib/nodejs/bin/$b /usr/bin/$b; done
+}
+if [[ "${CUR_NODE:-0}" -lt 20 ]]; then
+  if curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o /tmp/nodesource_setup.sh && bash /tmp/nodesource_setup.sh >/dev/null 2>&1 \
+     && apt-get install -y -qq nodejs >/dev/null; then
+    ok "Đã cài Node.js từ NodeSource"
+  else
+    warn "Không dùng được kho NodeSource — cài Node.js từ nodejs.org"
+    apt-get install -y -qq xz-utils >/dev/null
+    install_node_tarball
+  fi
+  rm -f /tmp/nodesource_setup.sh
+fi
+[[ -x /usr/bin/node ]] || die "Không cài được Node.js vào /usr/bin/node"
+ok "Node $(/usr/bin/node -v), npm $(/usr/bin/npm -v)"
+
+# ------------------------------ 3. Người dùng & thư mục ------------------------------
+step "3/9 Tài khoản hệ thống & thư mục"
+id "$APP_USER" &>/dev/null || useradd --system --home-dir /var/lib/$APP_NAME --create-home --shell /usr/sbin/nologin "$APP_USER"
+install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_DIR"
+install -d -o root -g "$APP_USER" -m 750 "$CONF_DIR"
+install -d -o postgres -g postgres -m 750 "$BACKUP_DIR"
+ok "User $APP_USER, thư mục $APP_DIR, cấu hình $CONF_DIR"
+
+# ------------------------------ 4. PostgreSQL ------------------------------
+step "4/9 PostgreSQL"
+systemctl enable --now postgresql >/dev/null 2>&1 || service postgresql start >/dev/null
+for _ in {1..20}; do sudo -u postgres psql -qtAc 'select 1' &>/dev/null && break; sleep 1; done
+if [[ $FIRST_INSTALL == 1 ]]; then
+  DB_PASS=$(rand 24)
+  if sudo -u postgres psql -qtAc "select 1 from pg_roles where rolname='$APP_NAME'" | grep -q 1; then
+    sudo -u postgres psql -qc "alter role $APP_NAME with login password '$DB_PASS'"
+  else
+    sudo -u postgres psql -qc "create role $APP_NAME with login password '$DB_PASS'"
+  fi
+  sudo -u postgres psql -qtAc "select 1 from pg_database where datname='$APP_NAME'" | grep -q 1 \
+    || sudo -u postgres psql -qc "create database $APP_NAME owner $APP_NAME encoding 'UTF8' template template0"
+  ok "Đã tạo CSDL $APP_NAME"
+else
+  ok "Dùng CSDL hiện có (không thay đổi)"
+fi
+
+# ------------------------------ 5. File cấu hình ------------------------------
+step "5/9 Cấu hình $ENV_FILE"
+if [[ $FIRST_INSTALL == 1 ]]; then
+  ADMIN_PASS=$(rand 12)
+  umask 027
+  cat >"$ENV_FILE" <<ENV
+# Cấu hình WorkPing — sửa xong chạy: sudo systemctl restart $APP_NAME
+# Giá trị có khoảng trắng phải đặt trong dấu ngoặc kép
+NODE_ENV=production
+PORT=$PORT
+DATABASE_URL=postgresql://$APP_NAME:$DB_PASS@127.0.0.1:5432/$APP_NAME?schema=public
+JWT_SECRET=$(rand 64)
+JWT_EXPIRES_IN=30d
+TZ_NAME=$TZ_NAME
+WARN_DAYS=3
+REMIND_DAYS=3,1,0
+# Giờ gửi nhắc việc (cron): 8h sáng thứ 2 – thứ 7
+REMINDER_CRON="0 8 * * 1-6"
+DEFAULT_PASSWORD=123456
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=$ADMIN_PASS
+WEB_DIST=$APP_DIR/web/dist
+FIREBASE_SERVICE_ACCOUNT_PATH=$CONF_DIR/firebase-service-account.json
+ENV
+  umask 022
+  chown root:"$APP_USER" "$ENV_FILE"; chmod 640 "$ENV_FILE"
+  printf 'Tài khoản quản trị WorkPing\n  Tên đăng nhập: admin\n  Mật khẩu: %s\n(đổi ngay sau lần đăng nhập đầu tiên)\n' "$ADMIN_PASS" > "$CONF_DIR/admin-credentials.txt"
+  chmod 600 "$CONF_DIR/admin-credentials.txt"
+  ok "Đã tạo cấu hình với mật khẩu CSDL, JWT secret, mật khẩu admin ngẫu nhiên"
+else
+  # Cập nhật cổng nếu truyền --port khác
+  sed -i "s/^PORT=.*/PORT=$PORT/" "$ENV_FILE"
+  ok "Giữ nguyên cấu hình hiện có"
+fi
+PORT=$(grep -E '^PORT=' "$ENV_FILE" | cut -d= -f2)
+if [[ -n "$FIREBASE_KEY" ]]; then
+  install -o root -g "$APP_USER" -m 640 "$FIREBASE_KEY" "$CONF_DIR/firebase-service-account.json"
+  ok "Đã cài khoá Firebase"
+fi
+
+# ------------------------------ 6. Mã nguồn & build ------------------------------
+step "6/9 Chép mã nguồn & build (vài phút)"
+rsync -a --delete \
+  --exclude '.git' --exclude 'node_modules' --exclude 'dist' --exclude 'mobile' \
+  --exclude '.env' --exclude 'secrets' --exclude '*.log' \
+  "$SRC_DIR"/ "$APP_DIR"/
+chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+( cd "$APP_DIR/web" && as_app npm ci --no-audit --no-fund --loglevel=error && as_app npm run build --silent >/dev/null )
+ok "Đã build web"
+( cd "$APP_DIR/backend" && as_app npm ci --no-audit --no-fund --loglevel=error && as_app npm run build --silent >/dev/null )
+ok "Đã build API"
+
+# ------------------------------ 7. CSDL: migrate + seed ------------------------------
+step "7/9 Cập nhật cấu trúc CSDL"
+# Chạy lệnh bằng user dịch vụ với biến môi trường từ file cấu hình
+run_env() { ( cd "$APP_DIR/backend" && sudo -u "$APP_USER" -H bash -c 'set -a; . "$0"; set +a; PATH=/usr/bin:/bin:$PATH; exec "$@"' "$ENV_FILE" "$@" ); }
+run_env npx prisma migrate deploy >/dev/null
+run_env node dist/scripts/seed.js
+if [[ -n "$IMPORT_XLSX" ]]; then
+  cp "$IMPORT_XLSX" /tmp/workping-import.xlsx && chmod 644 /tmp/workping-import.xlsx
+  run_env node dist/scripts/import-excel.js /tmp/workping-import.xlsx
+  rm -f /tmp/workping-import.xlsx
+fi
+ok "CSDL sẵn sàng"
+
+# ------------------------------ 8. Dịch vụ systemd ------------------------------
+step "8/9 Dịch vụ systemd"
+sed -e "s#@APP_DIR@#$APP_DIR#g" -e "s#@APP_USER@#$APP_USER#g" -e "s#@ENV_FILE@#$ENV_FILE#g" -e "s#@TZ@#$TZ_NAME#g" \
+  "$APP_DIR/deploy/workping.service" > /etc/systemd/system/$APP_NAME.service
+# Sao lưu CSDL hằng ngày lúc 1h sáng, giữ 14 ngày
+install -m 755 "$APP_DIR/deploy/backup.sh" /usr/local/bin/workping-backup
+echo "0 1 * * * root /usr/local/bin/workping-backup >/dev/null 2>&1" > /etc/cron.d/workping-backup
+systemctl daemon-reload
+systemctl enable $APP_NAME >/dev/null 2>&1
+systemctl restart $APP_NAME
+for i in {1..30}; do
+  curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && break
+  [[ $i == 30 ]] && { journalctl -u $APP_NAME -n 40 --no-pager || true; die "Dịch vụ không khởi động được (xem log ở trên)"; }
+  sleep 1
+done
+ok "Dịch vụ $APP_NAME đang chạy: $(curl -fsS "http://127.0.0.1:$PORT/api/health")"
+
+# ------------------------------ 9. Nginx + HTTPS ------------------------------
+step "9/9 Nginx"
+if [[ $SKIP_NGINX == 1 ]]; then
+  warn "Bỏ qua nginx — API/web lắng nghe tại 127.0.0.1:$PORT"
+else
+  sed -e "s#@SERVER_NAME@#${DOMAIN:-_}#g" -e "s#@PORT@#$PORT#g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/$APP_NAME
+  # Máy chủ tắt IPv6 → bỏ dòng listen [::]
+  [[ -f /proc/net/if_inet6 ]] || sed -i '/listen \[::\]/d' /etc/nginx/sites-available/$APP_NAME
+  ln -sf /etc/nginx/sites-available/$APP_NAME /etc/nginx/sites-enabled/$APP_NAME
+  [[ -z "$DOMAIN" ]] && rm -f /etc/nginx/sites-enabled/default
+  nginx -t -q
+  systemctl enable --now nginx >/dev/null 2>&1 || true
+  systemctl reload nginx 2>/dev/null || service nginx reload >/dev/null 2>&1 || service nginx start >/dev/null
+  if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then ufw allow 'Nginx Full' >/dev/null; ok "Đã mở tường lửa (80/443)"; fi
+  if [[ -n "$DOMAIN" && -n "$EMAIL" ]] && ! is_ip "$DOMAIN"; then
+    if certbot --nginx -d "$DOMAIN" -m "$EMAIL" --agree-tos --non-interactive --redirect; then
+      ok "Đã bật HTTPS cho $DOMAIN (tự gia hạn)"
+    else
+      warn "Chưa lấy được chứng chỉ HTTPS — kiểm tra tên miền đã trỏ về IP máy chủ, rồi chạy lại script"
+    fi
+  fi
+  ok "Nginx đã cấu hình"
+fi
+
+# ------------------------------ Kết quả ------------------------------
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [[ $SKIP_NGINX == 1 ]]; then URL="http://127.0.0.1:$PORT"
+elif [[ -n "$DOMAIN" && -n "$EMAIL" ]] && ! is_ip "$DOMAIN"; then URL="https://$DOMAIN"
+else URL="http://${DOMAIN:-$IP}"; fi
+
+echo
+echo "${C_OK}${C_B}══════════════════ HOÀN TẤT ══════════════════${C_0}"
+echo "  Địa chỉ web     : $URL"
+echo "  API cho app     : $URL/api"
+[[ $FIRST_INSTALL == 1 ]] && { echo; sed 's/^/  /' "$CONF_DIR/admin-credentials.txt"; echo "  (đã lưu tại $CONF_DIR/admin-credentials.txt)"; }
+echo
+echo "  Cấu hình        : $ENV_FILE"
+echo "  Trạng thái      : sudo systemctl status $APP_NAME"
+echo "  Xem log         : sudo journalctl -u $APP_NAME -f"
+echo "  Sao lưu         : $BACKUP_DIR (tự động 1h sáng hằng ngày)"
+[[ -f "$CONF_DIR/firebase-service-account.json" ]] || echo "  ${C_WARN}Push Firebase   : CHƯA cấu hình — chạy lại với --firebase <file.json>${C_0}"

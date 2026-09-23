@@ -96,15 +96,18 @@ Kiểm thử backend: `cd backend && npm test` (cần DB `workping_test`, xem `b
 
 Các file khoá Firebase đã được `.gitignore`, **không commit**.
 
-## 6. Triển khai (Docker)
+## 6. Triển khai
+
+**Khuyến nghị – chạy dạng service trên Ubuntu (1 lệnh):**
 
 ```bash
-cp .env.example .env        # đặt JWT_SECRET, DB_PASSWORD, ADMIN_PASSWORD
-mkdir -p secrets && cp firebase-service-account.json secrets/
-docker compose up -d --build
+sudo bash deploy/install.sh --domain workping.congty.vn --email it@congty.vn \
+  --firebase ~/firebase-service-account.json --import ~/Cong_cu_Quan_ly_Tien_do.xlsx
 ```
 
-Mở `http://<máy-chủ>:4000` (web và API `/api` cùng một cổng). Nên đặt sau reverse proxy HTTPS (nginx/Caddy). App mobile cần gọi được API qua HTTPS.
+Hướng dẫn chi tiết từng bước, nâng cấp, sao lưu/khôi phục, xử lý sự cố: [`deploy/README.md`](deploy/README.md).
+
+Cách khác – Docker: `cp .env.example .env`, đặt khoá Firebase vào `secrets/firebase-service-account.json`, rồi `docker compose up -d --build`.
 
 ## 7. App mobile
 

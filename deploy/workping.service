@@ -1,0 +1,24 @@
+[Unit]
+Description=WorkPing - Quản lý tiến độ & nhắc việc
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@APP_DIR@/backend
+EnvironmentFile=@ENV_FILE@
+Environment=TZ=@TZ@
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+# Bảo mật
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
