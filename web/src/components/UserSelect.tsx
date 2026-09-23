@@ -7,6 +7,8 @@ type Props = {
   placeholder?: string;
   excludeId?: number;
   excludeIds?: number[];
+  /** Chỉ Trưởng/Phó trưởng phòng (người chủ trì / phụ trách) — nhân viên chỉ là người thực hiện */
+  leadsOnly?: boolean;
 } & (
   | { multiple?: false; value?: number | null; onChange?: (v: number | null) => void }
   | { multiple: true; value?: number[]; onChange?: (v: number[]) => void }
@@ -20,7 +22,7 @@ type Props = {
 export function AssigneeSelect(props: Props) {
   const { data = [], isLoading } = useAssignable();
   const exclude = new Set([...(props.excludeIds ?? []), ...(props.excludeId ? [props.excludeId] : [])]);
-  const people = data.filter((u) => !exclude.has(u.id));
+  const people = data.filter((u) => !exclude.has(u.id) && (!props.leadsOnly || u.role !== 'STAFF'));
   const selectedIds = props.multiple ? (props.value ?? []) : props.value ? [props.value] : [];
   const outside = data.filter((u) => selectedIds.includes(u.id) && !u.inGroup);
   return (

@@ -89,7 +89,7 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
         </Form.Item>
         <Space.Compact block style={{ gap: 12, display: 'flex', flexWrap: 'wrap' }}>
           <Form.Item name="ownerId" label="Người phụ trách chung" style={{ flex: 2, minWidth: 240 }} rules={[{ required: true }]}>
-            <AssigneeSelect />
+            <AssigneeSelect leadsOnly={user?.role === 'DEPUTY'} />
           </Form.Item>
           <Form.Item name="priority" label="Ưu tiên" style={{ flex: 1, minWidth: 120 }}>
             <Select options={[{ value: 'HIGH', label: 'Cao' }, { value: 'MEDIUM', label: 'Trung bình' }, { value: 'LOW', label: 'Thấp' }]} />

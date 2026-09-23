@@ -114,6 +114,27 @@ function normalizeProgress(
 type TaskRef = { id: number; code: string; title: string };
 
 /**
+ * Người chủ trì mốc chỉ là Trưởng/Phó trưởng phòng — nhân viên luôn là người thực hiện (giao bổ sung),
+ * để Phó trưởng phòng không thể chuyển hẳn trách nhiệm chủ trì cho nhân viên.
+ * Trả về chủ trì hợp lệ và danh sách người thực hiện đã bổ sung nhân viên (nếu có).
+ */
+async function splitLead(assigneeId: number | null | undefined, memberIds: number[] = []) {
+  if (!assigneeId) return { leadId: null as number | null, memberIds };
+  const a = await prisma.user.findUnique({ where: { id: assigneeId }, select: { role: true } });
+  if (a?.role === 'STAFF') return { leadId: null as number | null, memberIds: [assigneeId, ...memberIds.filter((x) => x !== assigneeId)] };
+  return { leadId: assigneeId as number | null, memberIds: memberIds.filter((x) => x !== assigneeId) };
+}
+
+/** Phó trưởng phòng không giao "phụ trách chung" cho nhân viên — dùng Giao bổ sung */
+async function ensureOwnerAllowed(u: AuthUser, ownerId: number) {
+  if (u.role !== 'DEPUTY' || ownerId === u.id) return;
+  const o = await prisma.user.findUnique({ where: { id: ownerId }, select: { role: true } });
+  if (o?.role === 'STAFF') {
+    throw forbidden('Phó trưởng phòng phải trực tiếp phụ trách công việc — giao nhân viên bằng “Người thực hiện” / Giao bổ sung');
+  }
+}
+
+/**
  * Giao bổ sung người thực hiện cho một mốc.
  * - Bỏ qua người đã có trong mốc / chính người chủ trì.
  * - Nếu người đang giữ mốc là nhân viên (Trưởng phòng giao thẳng) thì chuyển người đó thành 1 người thực hiện,
@@ -227,6 +248,7 @@ tasksRouter.post('/', async (req, res) => {
   const body = parse(taskBody.merge(crossGroupBody), req.body);
   const ownerId = body.ownerId ?? u.id;
   await ensureAssignable(u, ownerId);
+  await ensureOwnerAllowed(u, ownerId);
   for (const m of body.milestones ?? []) {
     await ensureAssignable(u, m.assigneeId);
     for (const id of m.memberIds ?? []) await ensureAssignable(u, id);
@@ -260,7 +282,9 @@ tasksRouter.post('/', async (req, res) => {
     },
   });
   const memberPlan: { milestoneId: number; memberIds: number[] }[] = [];
-  for (const [i, m] of milestones.entries()) {
+  for (const [i, m0] of milestones.entries()) {
+    const split = await splitLead(m0.assigneeId, 'memberIds' in m0 ? (m0.memberIds ?? []) : []);
+    const m = { ...m0, assigneeId: split.leadId, memberIds: split.memberIds };
     const row = await prisma.milestone.create({
       data: {
         taskId: created.id,
@@ -275,7 +299,7 @@ tasksRouter.post('/', async (req, res) => {
         note: 'note' in m ? (m.note ?? null) : null,
       },
     });
-    if ('memberIds' in m && m.memberIds?.length) memberPlan.push({ milestoneId: row.id, memberIds: m.memberIds });
+    if (m.memberIds.length) memberPlan.push({ milestoneId: row.id, memberIds: m.memberIds });
   }
   let task = await loadTask(created.id);
   await log(task.id, u.id, 'CREATE', `Tạo công việc, giao cho ${task.owner.fullName}${task.ownerOutOfGroup ? ' (ngoài nhóm)' : ''}`);
@@ -344,7 +368,10 @@ tasksRouter.put('/:id', async (req, res) => {
   if (!(await canManageTask(u, task))) throw forbidden();
   const body = parse(taskBody.omit({ milestones: true }).partial().merge(crossGroupBody), req.body);
   const ownerChanged = !!body.ownerId && body.ownerId !== task.ownerId;
-  if (ownerChanged) await ensureAssignable(u, body.ownerId);
+  if (ownerChanged) {
+    await ensureAssignable(u, body.ownerId);
+    await ensureOwnerAllowed(u, body.ownerId!);
+  }
   const out = ownerChanged ? await checkOutOfGroup(u, [body.ownerId], body.confirmOutOfGroup) : new Set<number>();
   if (body.code && body.code !== task.code && (await prisma.task.findUnique({ where: { code: body.code } }))) {
     throw badRequest(`Mã công việc ${body.code} đã tồn tại`);
@@ -436,9 +463,11 @@ tasksRouter.post('/:id/milestones', async (req, res) => {
   const id = parse(idParam, req.params.id);
   const task = await loadTask(id);
   if (!(await canManageTask(u, task))) throw forbidden();
-  const body = parse(milestoneBody.merge(crossGroupBody), req.body);
-  await ensureAssignable(u, body.assigneeId);
-  for (const mid of body.memberIds ?? []) await ensureAssignable(u, mid);
+  const raw = parse(milestoneBody.merge(crossGroupBody), req.body);
+  await ensureAssignable(u, raw.assigneeId);
+  for (const mid of raw.memberIds ?? []) await ensureAssignable(u, mid);
+  const split = await splitLead(raw.assigneeId, raw.memberIds);
+  const body = { ...raw, assigneeId: split.leadId, memberIds: split.memberIds };
   const out = await checkOutOfGroup(u, [body.assigneeId, ...(body.memberIds ?? [])], body.confirmOutOfGroup);
   const seq = body.seq ?? Math.max(0, ...task.milestones.map((m) => m.seq)) + 1;
   const m = await prisma.milestone.create({
@@ -528,7 +557,15 @@ milestonesRouter.put('/:id', async (req, res) => {
   if (!(await canManageTask(u, m.task))) throw forbidden();
   const body = parse(milestoneBody.partial().merge(progressBody).merge(crossGroupBody), req.body);
   const reassigned = body.assigneeId !== undefined && body.assigneeId !== m.assigneeId;
-  if (reassigned) await ensureAssignable(u, body.assigneeId);
+  if (reassigned) {
+    await ensureAssignable(u, body.assigneeId);
+    if (body.assigneeId && (await prisma.user.findUnique({ where: { id: body.assigneeId }, select: { role: true } }))?.role === 'STAFF') {
+      throw badRequest('Người chủ trì phải là Trưởng phòng hoặc Phó trưởng phòng — giao nhân viên bằng “Giao bổ sung”');
+    }
+    if (u.role === 'DEPUTY' && m.assigneeId === u.id) {
+      throw forbidden('Phó trưởng phòng không chuyển trách nhiệm chủ trì mốc — dùng “Giao bổ sung” để thêm người thực hiện');
+    }
+  }
   const out = reassigned ? await checkOutOfGroup(u, [body.assigneeId], body.confirmOutOfGroup) : new Set<number>();
   // Mốc có nhiều người thực hiện: % tính từ người thực hiện; "Hoàn thành" ở đây = chủ trì xác nhận hoàn thành
   let prog: Record<string, unknown>;

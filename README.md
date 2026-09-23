@@ -44,7 +44,10 @@ Công thức giữ nguyên như Excel:
 
 ### Giao bổ sung — nhiều người cùng thực hiện một mốc
 
-Mỗi mốc có **người chủ trì** (vd Phó trưởng phòng được Trưởng phòng giao) và có thể có **nhiều người thực hiện**:
+Mỗi mốc có **người chủ trì** (vd Phó trưởng phòng được Trưởng phòng giao) và có thể có **nhiều người thực hiện**.
+
+> **Người chủ trì chỉ là Trưởng phòng hoặc Phó trưởng phòng — không chuyển được cho nhân viên.** Phó trưởng phòng luôn giữ trách nhiệm với việc được giao: không đổi chủ trì sang nhân viên, không bỏ chủ trì của mình, không giao “phụ trách chung” cho nhân viên. Nhân viên luôn tham gia với vai trò **người thực hiện** (giao bổ sung).
+
 
 1. **Trưởng phòng** tạo công việc → giao **Phó trưởng phòng** (người chủ trì mốc).
 2. **Phó trưởng phòng** nhận thông báo → *Việc của tôi* → **Giao bổ sung** → chọn **một hoặc nhiều nhân viên**, hạn, chỉ đạo. Phó trưởng phòng vẫn giữ vai trò chủ trì.
@@ -60,7 +63,7 @@ Mỗi mốc có **người chủ trì** (vd Phó trưởng phòng được Trư�
 - Khi tạo công việc/mốc, ô *Người thực hiện* chọn được nhiều người; hoặc bấm **Giao bổ sung** trên mốc bất kỳ. Không bị cảnh báo nhóm.
 - **Phó trưởng phòng phụ trách nhóm** của từng nhân viên nhận thông báo “… giao trực tiếp cho nhân viên nhóm bạn” và xem được công việc để nắm khối lượng việc của nhóm.
 - Mốc hoàn thành khi tất cả nhân viên xong, hoặc Trưởng phòng / cấp quản lý đánh hoàn thành.
-- Mốc đang giao thẳng cho 1 nhân viên mà giao bổ sung thêm người → nhân viên cũ trở thành 1 người thực hiện (giữ nguyên tiến độ), cần tất cả cùng xong.
+- Chọn 1 nhân viên cho mốc thì nhân viên đó cũng là người thực hiện (không phải chủ trì); mốc hoàn thành khi nhân viên đánh xong hoặc Trưởng phòng xác nhận.
 
 Nhắc việc hằng ngày gửi cho người chủ trì **và từng người thực hiện chưa xong phần của mình**.
 

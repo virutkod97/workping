@@ -55,9 +55,9 @@ export function MilestoneFormModal(props: { open: boolean; taskId: number; miles
         <Form.Item
           name="assigneeId"
           label="Người chủ trì"
-          tooltip="Người chịu trách nhiệm chính (vd Phó trưởng phòng). Người chủ trì có thể giao bổ sung cho nhân viên và đánh hoàn thành cả mốc."
+          tooltip="Trưởng/Phó trưởng phòng chịu trách nhiệm chính. Người chủ trì giao bổ sung cho nhân viên và xác nhận hoàn thành cả mốc. Nhân viên không làm chủ trì — chọn ở ô Người thực hiện."
         >
-          <AssigneeSelect allowClear />
+          <AssigneeSelect allowClear leadsOnly placeholder="Trưởng / Phó trưởng phòng" />
         </Form.Item>
         {!milestone && (
           <Form.Item

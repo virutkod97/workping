@@ -4,7 +4,7 @@ import type { AuthUser } from './auth';
 
 /**
  * Giao việc 3 cấp:
- *   Trưởng phòng (HEAD) ──giao──▶ Phó trưởng phòng (DEPUTY) ──giao tiếp──▶ Nhân viên (STAFF)
+ *   Trưởng phòng (HEAD) ──giao──▶ Phó trưởng phòng (DEPUTY, vẫn là chủ trì) ──giao bổ sung──▶ Nhân viên (STAFF)
  * - HEAD/ADMIN: xem & giao việc cho toàn phòng.
  * - DEPUTY: phụ trách 1 nhóm = các nhân sự có "quản lý trực tiếp" là mình (và cấp dưới của họ).
  *   Giao được cho bản thân, người trong nhóm, và nhân viên nhóm khác — nhưng giao ra NGOÀI NHÓM
