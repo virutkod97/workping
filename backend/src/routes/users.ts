@@ -175,8 +175,17 @@ usersRouter.put('/:id', async (req, res) => {
   res.json(user);
 });
 
+/** Trưởng phòng không được tác động tới tài khoản quản trị */
+async function ensureNotAdminTarget(actorRole: string, id: number) {
+  if (actorRole === 'ADMIN') return;
+  const t = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  if (!t) throw notFound();
+  if (t.role === 'ADMIN') throw forbidden('Chỉ quản trị viên được thao tác tài khoản quản trị');
+}
+
 usersRouter.post('/:id/reset-password', requireRole('ADMIN', 'HEAD'), async (req, res) => {
   const id = parse(idParam, req.params.id);
+  await ensureNotAdminTarget(me(req).role, id);
   const body = parse(z.object({ password: z.string().min(6).optional() }), req.body ?? {});
   await prisma.user.update({
     where: { id },
@@ -189,6 +198,7 @@ usersRouter.post('/:id/reset-password', requireRole('ADMIN', 'HEAD'), async (req
 usersRouter.delete('/:id', requireRole('ADMIN', 'HEAD'), async (req, res) => {
   const id = parse(idParam, req.params.id);
   if (id === me(req).id) throw badRequest('Không thể tự vô hiệu hoá tài khoản của mình');
+  await ensureNotAdminTarget(me(req).role, id);
   await prisma.$transaction([
     prisma.user.update({ where: { id }, data: { status: 'INACTIVE' } }),
     prisma.user.updateMany({ where: { managerId: id }, data: { managerId: null } }),

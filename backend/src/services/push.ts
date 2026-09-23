@@ -59,7 +59,7 @@ export async function sendPushToUser(userId: number, p: PushPayload): Promise<nu
     data: p.data,
     android: {
       priority: 'high',
-      notification: { channelId: 'workping_default', sound: 'default' },
+      notification: { sound: 'default' },
     },
     apns: {
       headers: { 'apns-priority': '10' },

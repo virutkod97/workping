@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: workping
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-workping}
+      POSTGRES_DB: workping
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workping"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://workping:${DB_PASSWORD:-workping}@db:5432/workping?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Cần đặt JWT_SECRET trong file .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin@123}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-123456}
+      REMINDER_CRON: ${REMINDER_CRON:-0 8 * * 1-6}
+      WARN_DAYS: ${WARN_DAYS:-3}
+      REMIND_DAYS: ${REMIND_DAYS:-3,1,0}
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase.json
+    volumes:
+      # Đặt file service account tải từ Firebase Console tại ./secrets/firebase-service-account.json
+      - ./secrets/firebase-service-account.json:/run/secrets/firebase.json:ro
+
+volumes:
+  pgdata:

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+!.env.example
 *.log
 .DS_Store
 # Firebase secrets — không commit
@@ -11,3 +12,4 @@ GoogleService-Info.plist
 mobile/.expo/
 mobile/android/
 mobile/ios/
+secrets/

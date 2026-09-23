@@ -44,7 +44,7 @@ export function createApp() {
   app.use('/api', api);
 
   // Phục vụ bản build web (nếu có) từ cùng server
-  const webDist = process.env.WEB_DIST || path.resolve(__dirname, '../../web/dist');
+  const webDist = path.resolve(process.env.WEB_DIST || path.join(__dirname, '../../web/dist'));
   if (fs.existsSync(webDist)) {
     app.use(express.static(webDist));
     app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(webDist, 'index.html')));

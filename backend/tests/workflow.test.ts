@@ -190,3 +190,13 @@ describe('thông báo & thiết bị', () => {
     expect((await as(depA).get('/api/notifications/unread-count')).body.count).toBe(0);
   });
 });
+
+describe('bảo vệ tài khoản quản trị', () => {
+  it('Trưởng phòng không đặt lại mật khẩu / vô hiệu hoá được tài khoản quản trị', async () => {
+    const { head } = await org();
+    const admin = await prisma.user.create({ data: { code: 'ADMIN', username: 'admin', fullName: 'Admin', role: 'ADMIN', passwordHash: 'x' } });
+    expect((await as(head).post(`/api/users/${admin.id}/reset-password`)).status).toBe(403);
+    expect((await as(head).delete(`/api/users/${admin.id}`)).status).toBe(403);
+    expect((await as(head).put(`/api/users/${admin.id}`, { fullName: 'Hack' })).status).toBe(403);
+  });
+});

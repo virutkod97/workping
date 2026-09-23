@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "WorkPing",
+    "slug": "workping",
+    "scheme": "workping",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "vn.com.npc.workping",
+      "supportsTablet": true,
+      "googleServicesFile": "./firebase/GoogleService-Info.plist",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
+      },
+      "entitlements": {
+        "aps-environment": "production"
+      }
+    },
+    "android": {
+      "package": "vn.com.npc.workping",
+      "googleServicesFile": "./firebase/google-services.json",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#1F4E78",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "@react-native-firebase/app",
+      [
+        "@react-native-firebase/messaging",
+        {
+          "android": {
+            "notificationIcon": "./assets/android-icon-monochrome.png",
+            "notificationColor": "#1F4E78"
+          }
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "forceStaticLinking": [
+              "RNFBApp",
+              "RNFBMessaging"
+            ]
+          }
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      [
+        "./plugins/withNotificationIcon",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#1F4E78"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
