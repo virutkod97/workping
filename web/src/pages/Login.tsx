@@ -1,0 +1,49 @@
+import { App, Button, Card, Form, Input, Typography } from 'antd';
+import { LockOutlined, UserOutlined } from '@ant-design/icons';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth';
+
+export default function Login() {
+  const { login } = useAuth();
+  const nav = useNavigate();
+  const { message } = App.useApp();
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,#1f4e78,#2f75b5)', padding: 16 }}>
+      <Card style={{ width: '100%', maxWidth: 380 }}>
+        <Typography.Title level={3} style={{ textAlign: 'center', marginBottom: 4 }}>
+          WorkPing
+        </Typography.Title>
+        <Typography.Paragraph type="secondary" style={{ textAlign: 'center' }}>
+          Quản lý tiến độ & nhắc việc
+        </Typography.Paragraph>
+        <Form
+          layout="vertical"
+          onFinish={async (v) => {
+            setLoading(true);
+            try {
+              await login(v.username, v.password);
+              nav('/');
+            } catch (e) {
+              message.error((e as Error).message);
+            } finally {
+              setLoading(false);
+            }
+          }}
+        >
+          <Form.Item name="username" rules={[{ required: true, message: 'Nhập tên đăng nhập' }]}>
+            <Input prefix={<UserOutlined />} placeholder="Tên đăng nhập (VD: ns001)" size="large" autoFocus />
+          </Form.Item>
+          <Form.Item name="password" rules={[{ required: true, message: 'Nhập mật khẩu' }]}>
+            <Input.Password prefix={<LockOutlined />} placeholder="Mật khẩu" size="large" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block size="large" loading={loading}>
+            Đăng nhập
+          </Button>
+        </Form>
+      </Card>
+    </div>
+  );
+}
