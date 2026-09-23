@@ -62,6 +62,73 @@ function b64ToBytes(b64: string) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
+/** Lỗi bật thông báo kèm hướng dẫn tiếng Việt */
+export class PushSetupError extends Error {
+  hint: string;
+  constructor(message: string, hint: string) {
+    super(message);
+    this.hint = hint;
+  }
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, err: () => Error): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(err()), ms);
+    p.then(
+      (v) => (clearTimeout(t), resolve(v)),
+      (e) => (clearTimeout(t), reject(e)),
+    );
+  });
+}
+
+const ua = () => navigator.userAgent;
+const isCocCoc = () => /coc_coc_browser/i.test(ua());
+const isEdge = () => /Edg\//.test(ua());
+const isFirefox = () => /Firefox\//.test(ua());
+const isBrave = () => !!(navigator as Navigator & { brave?: unknown }).brave;
+
+/** Hướng dẫn khi trình duyệt không đăng ký được với dịch vụ push của hãng */
+function pushServiceHint(): string {
+  if (isBrave()) return 'Brave tắt dịch vụ thông báo mặc định: mở brave://settings/privacy → bật "Use Google services for push messaging" → tải lại trang và bật lại.';
+  if (isCocCoc()) return 'Cốc Cốc không hỗ trợ ổn định thông báo đẩy. Hãy dùng Microsoft Edge hoặc Google Chrome.';
+  if (isEdge()) return 'Edge cần kết nối tới dịch vụ thông báo của Microsoft (*.notify.windows.com, cổng 443). Nếu mạng cơ quan chặn: nhờ bộ phận mạng mở, hoặc thử mạng khác (4G).';
+  if (isFirefox()) return 'Firefox cần kết nối tới push.services.mozilla.com (cổng 443). Nếu mạng cơ quan chặn: thử Microsoft Edge hoặc mạng khác.';
+  return (
+    'Chrome cần kết nối tới máy chủ thông báo của Google — mạng cơ quan thường chặn. Cách xử lý: ' +
+    '(1) dùng Microsoft Edge (dùng dịch vụ của Microsoft, ít bị chặn hơn); ' +
+    '(2) hoặc nhờ bộ phận mạng mở cho máy tính: mtalk.google.com cổng 5228 và 443, android.clients.google.com, fcm.googleapis.com, fcmregistrations.googleapis.com (cổng 443).'
+  );
+}
+
+/** Service worker (chạy nền, nhận thông báo) — đăng ký nếu chưa có, chờ tối đa 10 giây */
+async function readyRegistration(): Promise<ServiceWorkerRegistration> {
+  if (!(await navigator.serviceWorker.getRegistration())) await navigator.serviceWorker.register('/sw.js');
+  return withTimeout(
+    navigator.serviceWorker.ready,
+    10_000,
+    () => new PushSetupError('Bộ nhận thông báo nền (service worker) chưa khởi động được', 'Tải lại trang bằng Ctrl+F5 rồi bấm Bật thông báo lần nữa. Không dùng chế độ ẩn danh (Incognito/InPrivate).'),
+  );
+}
+
+/** Trình duyệt đăng ký với dịch vụ push của hãng — có thể treo mãi nếu mạng chặn → giới hạn 20 giây */
+async function browserSubscribe(reg: ServiceWorkerRegistration, key: string): Promise<PushSubscription> {
+  try {
+    return await withTimeout(
+      reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) }),
+      20_000,
+      () => new PushSetupError('Trình duyệt không kết nối được dịch vụ thông báo của hãng (quá 20 giây)', pushServiceHint()),
+    );
+  } catch (e) {
+    if (e instanceof PushSetupError) throw e;
+    const msg = (e as Error)?.message ?? String(e);
+    if (/incognito|private/i.test(msg)) throw new PushSetupError('Chế độ ẩn danh không nhận được thông báo', 'Mở trang bằng cửa sổ thường (không phải Incognito/InPrivate).');
+    if (/push service|Registration failed|AbortError/i.test(msg) || (e as Error)?.name === 'AbortError') {
+      throw new PushSetupError(`Trình duyệt không đăng ký được dịch vụ thông báo: ${msg}`, pushServiceHint());
+    }
+    throw e;
+  }
+}
+
 /** Khoá máy chủ đã dùng khi đăng ký trên thiết bị này (Safari không phải lúc nào cũng trả về options.applicationServerKey) */
 const KEY_STORE = 'workping_push_key';
 const storedKey = () => {
@@ -74,7 +141,7 @@ const storedKey = () => {
 
 /** fresh = true: luôn tạo đăng ký mới (chỉ dùng khi người dùng bấm nút — iOS cần thao tác trực tiếp) */
 async function subscribeAndSave(fresh = false): Promise<{ needsRefresh?: boolean }> {
-  const reg = await navigator.serviceWorker.ready;
+  const reg = await readyRegistration();
   const key = await preloadPushKey();
   let sub = await reg.pushManager.getSubscription();
   let usedKey: string | null = null;
@@ -92,7 +159,7 @@ async function subscribeAndSave(fresh = false): Promise<{ needsRefresh?: boolean
     }
   }
   if (!sub) {
-    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+    sub = await browserSubscribe(reg, key);
     usedKey = key;
   }
   try {

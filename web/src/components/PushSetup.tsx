@@ -3,7 +3,7 @@ import { BellOutlined, CheckCircleFilled, DownloadOutlined } from '@ant-design/i
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { disablePush, enablePush, getPushState, isAndroid, isDesktop, isIOS, isStandalone, preloadPushKey, type PushState } from '../push';
+import { PushSetupError, disablePush, enablePush, getPushState, isAndroid, isDesktop, isIOS, isStandalone, preloadPushKey, type PushState } from '../push';
 
 // Chrome/Edge Android: sự kiện cho phép hiện nút "Cài ứng dụng"
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
@@ -38,6 +38,25 @@ function useInstallPrompt() {
   return deferredInstall;
 }
 
+/** Hộp thoại lỗi khi bật thông báo: nói rõ kẹt ở đâu và cách xử lý */
+function showPushError(modal: ReturnType<typeof App.useApp>['modal'], e: unknown) {
+  const err = e as Error;
+  modal.error({
+    title: 'Chưa bật được thông báo trên thiết bị này',
+    width: 560,
+    content: (
+      <div>
+        <Typography.Paragraph>{err?.message ?? String(e)}</Typography.Paragraph>
+        {e instanceof PushSetupError ? (
+          <Alert type="info" showIcon title="Cách xử lý" description={e.hint} />
+        ) : (
+          <Typography.Text type="secondary">Tải lại trang (Ctrl+F5) rồi thử lại. Nếu vẫn lỗi, thử Microsoft Edge.</Typography.Text>
+        )}
+      </div>
+    ),
+  });
+}
+
 const ShareIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" style={{ verticalAlign: '-3px' }} fill="none" stroke="#1677ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 3v12M7 8l5-5 5 5" />
@@ -47,7 +66,7 @@ const ShareIcon = () => (
 
 /** Hướng dẫn đầy đủ: cài lên màn hình chính + bật thông báo, tuỳ thiết bị */
 export function PushSetupCard() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { state, setState, refresh } = usePushState();
   const install = useInstallPrompt();
   const [busy, setBusy] = useState(false);
@@ -61,7 +80,7 @@ export function PushSetupCard() {
         if (s === 'on') message.success('Đã bật thông báo trên thiết bị này');
         else if (s === 'denied') message.warning('Bạn đã chặn thông báo');
       })
-      .catch((e) => message.error(`Không bật được thông báo: ${(e as Error).message}`))
+      .catch((e) => showPushError(modal, e))
       .finally(() => setBusy(false));
   };
   const test = async () => {
@@ -248,7 +267,7 @@ export function PushBanner() {
  * Đặt ở đầu trang Thông báo để dễ tìm (trang này có trên thanh điều hướng dưới của điện thoại).
  */
 export function PushDeviceBar() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { state, setState, refresh } = usePushState();
   const [busy, setBusy] = useState(false);
   if (!state) return null;
@@ -262,7 +281,7 @@ export function PushDeviceBar() {
         if (s === 'on') message.success('Đã bật thông báo trên thiết bị này');
         else if (s === 'denied') message.warning('Bạn đã chặn thông báo');
       })
-      .catch((e) => message.error(`Không bật được thông báo: ${(e as Error).message}`))
+      .catch((e) => showPushError(modal, e))
       .finally(() => setBusy(false));
   };
   const test = async () => {
