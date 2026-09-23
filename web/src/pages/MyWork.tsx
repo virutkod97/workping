@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Empty, List, Segmented, Space, Tag, Typography } from 'antd';
+import { Badge, Button, Card, Empty, Grid, List, Segmented, Space, Tag, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -15,6 +15,7 @@ export default function MyWork() {
   const [progress, setProgress] = useState<MyWorkItem | null>(null);
   const [addMembers, setAddMembers] = useState<Milestone | null>(null);
   const { canAssign } = useAuth();
+  const screens = Grid.useBreakpoint();
   const { data = [], isLoading } = useQuery({
     queryKey: ['my-work', filter === 'all'],
     queryFn: () => api.get<MyWorkItem[]>(`/dashboard/my-work${filter === 'all' ? '?includeDone=1' : ''}`),
@@ -22,28 +23,7 @@ export default function MyWork() {
   const items = filter === 'OVERDUE' || filter === 'DUE_SOON' ? data.filter((m) => m.warning === filter) : data;
   const n = (w: string) => data.filter((m) => m.warning === w).length;
 
-  return (
-    <>
-      <Typography.Title level={4}>Việc của tôi</Typography.Title>
-      <Segmented
-        style={{ marginBottom: 12 }}
-        value={filter}
-        onChange={(v) => setFilter(v as typeof filter)}
-        options={[
-          { value: 'open', label: 'Chưa xong' },
-          { value: 'OVERDUE', label: <Badge count={n('OVERDUE')} size="small" offset={[8, -2]}>Quá hạn</Badge> },
-          { value: 'DUE_SOON', label: <Badge count={n('DUE_SOON')} size="small" color="orange" offset={[8, -2]}>Sắp đến hạn</Badge> },
-          { value: 'all', label: 'Tất cả' },
-        ]}
-      />
-      <Card size="small">
-        <List
-          loading={isLoading}
-          dataSource={items}
-          locale={{ emptyText: <Empty description="Không có việc nào 🎉" /> }}
-          renderItem={(m) => (
-            <List.Item
-              actions={[
+  const buttons = (m: MyWorkItem) => [
                 ...(canAssign && m.myRole === 'LEAD' && m.status !== 'DONE'
                   ? [
                       <Button key="d" size="small" onClick={() => setAddMembers(m)}>
@@ -54,7 +34,46 @@ export default function MyWork() {
                 <Button key="u" type="primary" size="small" onClick={() => setProgress(m)} disabled={m.status === 'DONE' && filter !== 'all'}>
                   {m.myRole === 'MEMBER' ? 'Cập nhật phần của tôi' : m.members.length ? 'Cập nhật cả mốc' : 'Cập nhật'}
                 </Button>,
-              ]}
+  ];
+
+  return (
+    <>
+      <Typography.Title level={4}>Việc của tôi</Typography.Title>
+      <Segmented
+        style={{ marginBottom: 12 }}
+        value={filter}
+        onChange={(v) => setFilter(v as typeof filter)}
+        options={[
+          { value: 'open', label: 'Chưa xong' },
+          {
+            value: 'OVERDUE',
+            label: (
+              <span>
+                Quá hạn <Badge count={n('OVERDUE')} size="small" style={{ marginLeft: 2 }} />
+              </span>
+            ),
+          },
+          {
+            value: 'DUE_SOON',
+            label: (
+              <span>
+                Sắp đến hạn <Badge count={n('DUE_SOON')} size="small" color="orange" style={{ marginLeft: 2 }} />
+              </span>
+            ),
+          },
+          { value: 'all', label: 'Tất cả' },
+        ]}
+      />
+      <Card size="small">
+        <List
+          loading={isLoading}
+          dataSource={items}
+          locale={{ emptyText: <Empty description="Không có việc nào 🎉" /> }}
+          renderItem={(m) => (
+            <List.Item
+              // Điện thoại: nút thao tác nằm dưới nội dung thay vì chen bên cạnh
+              actions={screens.md ? buttons(m) : undefined}
+              style={screens.md ? undefined : { display: 'block' }}
             >
               <List.Item.Meta
                 title={
@@ -89,6 +108,7 @@ export default function MyWork() {
                   </Space>
                 }
               />
+              {!screens.md && <Space style={{ marginTop: 10 }}>{buttons(m)}</Space>}
             </List.Item>
           )}
         />
