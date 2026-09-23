@@ -3,7 +3,7 @@ import { BellOutlined, CheckCircleFilled, DownloadOutlined } from '@ant-design/i
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { disablePush, enablePush, getPushState, isAndroid, isIOS, isStandalone, preloadPushKey, type PushState } from '../push';
+import { disablePush, enablePush, getPushState, isAndroid, isDesktop, isIOS, isStandalone, preloadPushKey, type PushState } from '../push';
 
 // Chrome/Edge Android: sự kiện cho phép hiện nút "Cài ứng dụng"
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
@@ -128,6 +128,27 @@ export function PushSetupCard() {
         </div>
       )}
 
+      {isDesktop() && state !== 'insecure' && state !== 'unsupported' && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          title="Máy tính: nhận thông báo ngay cả khi không mở trang WorkPing (chỉ cần trình duyệt Chrome/Edge đang chạy)"
+          description={
+            <ol style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Bấm <b>Bật thông báo</b> bên dưới → chọn <b>Cho phép</b> (Allow) ở hộp thoại của trình duyệt.</li>
+              <li>
+                <b>Windows:</b> Cài đặt → Hệ thống → Thông báo → bật cho <b>Google Chrome</b>/<b>Microsoft Edge</b>; tắt <i>Không làm phiền / Tập trung</i>.
+              </li>
+              <li>
+                <b>Mac:</b> Cài đặt hệ thống → Thông báo → <b>Google Chrome</b> → Cho phép thông báo.
+              </li>
+              <li>Bấm <b>Gửi thông báo thử</b> để kiểm tra. Mỗi trình duyệt/máy tính cần bật riêng.</li>
+            </ol>
+          }
+        />
+      )}
+
       {state === 'unsupported' && <Alert type="warning" showIcon title="Trình duyệt này không hỗ trợ thông báo đẩy. Hãy dùng Chrome (Android/máy tính) hoặc Safari (iPhone/iPad)." />}
 
       {(state === 'default' || state === 'off') && (
@@ -219,5 +240,76 @@ export function PushBanner() {
         },
       }}
     />
+  );
+}
+
+/**
+ * Thanh trạng thái thông báo của THIẾT BỊ ĐANG DÙNG: bật / tắt / đăng ký lại / gửi thử.
+ * Đặt ở đầu trang Thông báo để dễ tìm (trang này có trên thanh điều hướng dưới của điện thoại).
+ */
+export function PushDeviceBar() {
+  const { message } = App.useApp();
+  const { state, setState, refresh } = usePushState();
+  const [busy, setBusy] = useState(false);
+  if (!state) return null;
+
+  const turnOn = () => {
+    setBusy(true);
+    // Không await gì trước requestPermission — iOS yêu cầu gọi ngay trong thao tác bấm
+    enablePush()
+      .then((s) => {
+        setState(s);
+        if (s === 'on') message.success('Đã bật thông báo trên thiết bị này');
+        else if (s === 'denied') message.warning('Bạn đã chặn thông báo');
+      })
+      .catch((e) => message.error(`Không bật được thông báo: ${(e as Error).message}`))
+      .finally(() => setBusy(false));
+  };
+  const test = async () => {
+    const r = await api.post<{ devices: number; sent: number; results?: { ok: boolean; error?: string }[] }>('/push/test');
+    const err = r.results?.find((x) => !x.ok)?.error;
+    if (r.sent) message.success(`Đã gửi tới ${r.sent}/${r.devices} thiết bị — kiểm tra thông báo`);
+    else if (err) message.error(`Chưa gửi được: ${err}`, 10);
+    else message.warning('Chưa gửi được — bấm "Đăng ký lại"');
+  };
+  const off = async () => {
+    setBusy(true);
+    await disablePush();
+    await refresh();
+    setBusy(false);
+    message.info('Đã tắt thông báo trên thiết bị này');
+  };
+
+  const on = state === 'on';
+  const canEnable = state === 'default' || state === 'off';
+  return (
+    <Card size="small" style={{ marginBottom: 12 }} styles={{ body: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' } }}>
+      <Space>
+        <BellOutlined style={{ fontSize: 18, color: on ? '#52c41a' : '#8c8c8c' }} />
+        <span>
+          Thông báo trên thiết bị này:{' '}
+          {on ? <Tag color="success">Đang bật</Tag> : state === 'denied' ? <Tag color="error">Bị chặn</Tag> : <Tag>Chưa bật</Tag>}
+        </span>
+      </Space>
+      <Space wrap size={6}>
+        {on && (
+          <>
+            <Button size="small" onClick={test}>Gửi thử</Button>
+            <Button size="small" loading={busy} onClick={turnOn}>Đăng ký lại</Button>
+            <Button size="small" danger onClick={off} disabled={busy}>Tắt</Button>
+          </>
+        )}
+        {canEnable && (
+          <Button size="small" type="primary" icon={<BellOutlined />} loading={busy} onClick={turnOn}>
+            Bật thông báo
+          </Button>
+        )}
+        {!on && !canEnable && (
+          <Link to="/app-setup">
+            <Button size="small">Xem hướng dẫn</Button>
+          </Link>
+        )}
+      </Space>
+    </Card>
   );
 }

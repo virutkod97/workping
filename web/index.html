@@ -19,9 +19,14 @@
       *, *::before, *::after { box-sizing: border-box; }
       html, body, #root { margin: 0; padding: 0; min-height: 100%; }
       body { background: #f5f5f5; }
+      /* Vùng tai thỏ / thanh trạng thái iPhone khi mở từ Màn hình chính (status-bar-style black-translucent):
+         nội dung phải chừa chỗ, và tô nền đậm để chữ giờ/pin (màu trắng) nhìn thấy được */
+      :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
+      .safe-top { position: fixed; top: 0; left: 0; right: 0; height: var(--sat); background: #1F4E78; z-index: 1100; pointer-events: none; }
     </style>
   </head>
   <body>
+    <div class="safe-top"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

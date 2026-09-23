@@ -48,7 +48,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Mỗi lần có người đăng nhập: đồng bộ đăng ký thông báo của thiết bị (nếu đã cho phép)
   useEffect(() => {
-    if (user?.id) void syncPush();
+    if (!user?.id) return;
+    void syncPush();
+    // Ứng dụng trên điện thoại thường chỉ ẩn/hiện chứ không mở lại → đồng bộ lại khi quay về (tối đa 10 phút/lần)
+    let last = Date.now();
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && Date.now() - last > 10 * 60_000) {
+        last = Date.now();
+        void syncPush();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, [user?.id]);
 
   const login = useCallback(async (username: string, password: string) => {

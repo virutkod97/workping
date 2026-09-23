@@ -12,7 +12,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   return (
-    <div style={{ minHeight: '100vh', boxSizing: 'border-box', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,#1f4e78,#2f75b5)', padding: 16 }}>
+    <div style={{ minHeight: '100vh', boxSizing: 'border-box', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,#1f4e78,#2f75b5)', padding: 16, paddingTop: 'calc(16px + var(--sat))' }}>
       <Card style={{ width: '100%', maxWidth: 380 }}>
         <div style={{ textAlign: 'center', margin: '4px 0 8px' }}>
           <Logo size={44} />

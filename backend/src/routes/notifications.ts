@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { me } from '../lib/auth';
 import { config } from '../config';
 import { idParam, parse } from '../lib/validate';
-import { checkPushConnectivity, deviceLabel, getClockSkewMs, getVapid, isAllowedPushEndpoint, sendPushDetailed, vapidSubject } from '../services/push';
+import { checkPushConnectivity, deviceLabel, getClockSkewMs, getVapid, isAllowedPushEndpoint, needsRefresh, sendPushDetailed, vapidSubject } from '../services/push';
 import { requirePasswordChanged, requireRole } from '../lib/auth';
 import { notFound } from '../lib/errors';
 
@@ -57,13 +57,15 @@ const subscriptionBody = z.object({
 pushRouter.post('/subscribe', async (req, res) => {
   const { subscription: s, userAgent } = parse(subscriptionBody, req.body);
   const userId = me(req).id;
+  const existing = await prisma.webPushSubscription.findUnique({ where: { endpoint: s.endpoint } });
   // Cùng 1 thiết bị đăng nhập tài khoản khác → chuyển đăng ký sang tài khoản mới
   await prisma.webPushSubscription.upsert({
     where: { endpoint: s.endpoint },
     create: { endpoint: s.endpoint, p256dh: s.keys.p256dh, auth: s.keys.auth, userAgent, userId },
     update: { p256dh: s.keys.p256dh, auth: s.keys.auth, userAgent, userId },
   });
-  res.json({ ok: true });
+  // Lần gửi trước bị từ chối chữ ký → báo trình duyệt tạo đăng ký mới
+  res.json({ ok: true, needsRefresh: !!existing && needsRefresh(existing) });
 });
 
 /** Gọi khi đăng xuất hoặc tắt thông báo trên thiết bị */

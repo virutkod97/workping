@@ -38,7 +38,11 @@ export async function getVapid(): Promise<Vapid> {
  * "sub" của VAPID: Apple từ chối (BadJwtToken) địa chỉ mẫu / localhost / sai định dạng
  * → tự dùng https://<tên miền công khai> nếu có.
  */
+let preferDomainSubject = false;
+const domainSubject = () => (config.publicDomain && !/^[\d.]+$/.test(config.publicDomain) ? `https://${config.publicDomain}` : null);
+
 export function vapidSubject(): string {
+  if (preferDomainSubject && domainSubject()) return domainSubject()!;
   const s = config.vapidSubject.trim();
   let valid = false;
   try {
@@ -49,8 +53,13 @@ export function vapidSubject(): string {
     valid = false;
   }
   if (valid) return s;
-  if (config.publicDomain && !/^[\d.]+$/.test(config.publicDomain)) return `https://${config.publicDomain}`;
-  return s;
+  return domainSubject() ?? s;
+}
+
+/** Dùng trong kiểm thử */
+export function resetPushState() {
+  preferDomainSubject = false;
+  clockSkewMs = 0;
 }
 
 /**
@@ -143,7 +152,8 @@ export function explainPushError(e: unknown, endpoint: string): string {
         `${e.statusCode} ${body}: dịch vụ push từ chối chữ ký VAPID. ` +
         (skew ? `Đồng hồ máy chủ lệch ${skew} giây (đã tự bù) — nên bật đồng bộ giờ: sudo timedatectl set-ntp true. ` : '') +
         `VAPID_SUBJECT đang dùng: "${vapidSubject()}". ` +
-        'Nếu thông tin trên đúng thì thiết bị đăng ký bằng khoá cũ: trên thiết bị đó vào "Cài app & thông báo" → Tắt rồi Bật lại thông báo.'
+        'Thường do thiết bị giữ đăng ký cũ (tạo bằng khoá khác): chỉ cần MỞ WorkPing trên thiết bị đó, ứng dụng sẽ tự đăng ký lại; ' +
+        'hoặc vào mục Thông báo → bấm "Đăng ký lại".'
       );
     }
     if (e.statusCode === 413) return '413: nội dung thông báo quá dài';
@@ -187,12 +197,33 @@ export async function sendPushDetailed(userId: number, p: PushPayload): Promise<
         try {
           await send(s);
         } catch (e) {
-          // Bị từ chối token vì lệch giờ → đo lại độ lệch từ phản hồi và gửi lại 1 lần
+          if (!(e instanceof WebPushError && (e.statusCode === 401 || e.statusCode === 403))) throw e;
+          // Bị từ chối token: (1) lệch giờ → đo lại từ header Date, bù và gửi lại
           const before = clockSkewMs;
-          if (e instanceof WebPushError && (e.statusCode === 401 || e.statusCode === 403)) observeServerDate(e.headers?.date);
-          if (clockSkewMs === before) throw e;
-          console.warn(`[push] đồng hồ máy chủ lệch ${Math.round(clockSkewMs / 1000)} giây — đã tự bù, gửi lại`);
-          await send(s);
+          observeServerDate(e.headers?.date);
+          let last: unknown = e;
+          if (clockSkewMs !== before) {
+            console.warn(`[push] đồng hồ máy chủ lệch ${Math.round(clockSkewMs / 1000)} giây — đã tự bù, gửi lại`);
+            try {
+              await send(s);
+              last = null;
+            } catch (e2) {
+              last = e2;
+            }
+          }
+          // (2) thử subject dạng https://tên-miền (phòng dịch vụ push không nhận email)
+          if (last && !preferDomainSubject && domainSubject() && domainSubject() !== vapidSubject()) {
+            preferDomainSubject = true;
+            try {
+              await send(s);
+              console.warn(`[push] dịch vụ push không nhận VAPID_SUBJECT "${config.vapidSubject}" — chuyển sang ${domainSubject()}`);
+              last = null;
+            } catch (e3) {
+              preferDomainSubject = false;
+              last = e3;
+            }
+          }
+          if (last) throw last;
         }
         await prisma.webPushSubscription.updateMany({ where: { id: s.id }, data: { lastOkAt: new Date(), lastError: null, lastErrorAt: null } });
         return { id: s.id, device, ok: true };
@@ -209,6 +240,11 @@ export async function sendPushDetailed(userId: number, p: PushPayload): Promise<
       }
     }),
   );
+}
+
+/** Đăng ký bị dịch vụ push từ chối chữ ký (401/403) ở lần gửi gần nhất → thiết bị cần đăng ký lại */
+export function needsRefresh(sub: { lastError: string | null; lastErrorAt: Date | null; lastOkAt: Date | null }): boolean {
+  return !!sub.lastError && /^(401|403)\b/.test(sub.lastError) && !!sub.lastErrorAt && (!sub.lastOkAt || sub.lastErrorAt > sub.lastOkAt);
 }
 
 /** Gửi tới mọi trình duyệt/thiết bị user đã bật thông báo. Trả về số lần gửi thành công. */

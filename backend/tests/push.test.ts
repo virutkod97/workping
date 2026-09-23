@@ -10,7 +10,7 @@ import type { AddressInfo } from 'node:net';
 const ece = require('http_ece') as { decrypt: (buf: Buffer, opts: Record<string, unknown>) => Buffer };
 import { as, day, org, prisma, resetDb } from './helpers';
 import { config } from '../src/config';
-import { vapidSubject } from '../src/services/push';
+import { resetPushState, vapidSubject } from '../src/services/push';
 
 /**
  * Giả lập dịch vụ push của trình duyệt (như web.push.apple.com / fcm.googleapis.com) bằng HTTPS server cục bộ,
@@ -23,6 +23,7 @@ const received: { path: string; headers: Record<string, unknown>; body: Buffer }
 /** Giả lập Apple: kiểm tra chữ ký & hạn token VAPID theo "giờ thật" của dịch vụ (lệch so với máy chủ appleOffsetMs) */
 let appleMode = false;
 let appleOffsetMs = 0;
+let appleRejectMailto = false;
 
 function appleCheck(auth: string): string | null {
   const m = /^vapid t=([^.]+)\.([^.]+)\.([^,]+), k=(.+)$/.exec(auth);
@@ -35,6 +36,7 @@ function appleCheck(auth: string): string | null {
   const now = (Date.now() + appleOffsetMs) / 1000;
   if (claims.exp < now || claims.exp > now + 24 * 3600) return 'BadJwtToken';
   if (!/^(mailto:|https:\/\/)/.test(claims.sub) || /example\.com|localhost/.test(claims.sub)) return 'BadJwtToken';
+  if (appleRejectMailto && claims.sub.startsWith('mailto:')) return 'BadJwtToken';
   return null;
 }
 
@@ -64,6 +66,8 @@ beforeEach(async () => {
   received.length = 0;
   appleMode = false;
   appleOffsetMs = 0;
+  appleRejectMailto = false;
+  resetPushState();
   nextStatus = 201;
 });
 
@@ -237,12 +241,44 @@ describe('Web Push (PWA)', () => {
       const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
       expect(r.body.results[0].error).toContain('BadJwtToken');
       expect(r.body.results[0].error).toContain('mailto:admin@example.com');
-      expect(r.body.results[0].error).toContain('Tắt rồi Bật lại');
+      expect(r.body.results[0].error).toContain('Đăng ký lại');
 
       Object.assign(config, { vapidSubject: 'mailto:anhnd1097@gmail.com' });
       expect(vapidSubject()).toBe('mailto:anhnd1097@gmail.com');
     } finally {
       Object.assign(config, { vapidSubject: old.s, publicDomain: old.d });
     }
+  });
+
+  it('dịch vụ push không nhận subject email → tự thử https://tên-miền và dùng luôn từ đó', async () => {
+    const { head, staffA } = await org();
+    const k = browserKeys();
+    await as(staffA).post('/api/push/subscribe', { subscription: { endpoint: `${base}/push/iphone`, keys: k.keys } });
+    appleMode = true;
+    appleRejectMailto = true;
+    const old = config.publicDomain;
+    try {
+      config.publicDomain = 'nbpc.evn.vn';
+      const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
+      expect(r.body).toMatchObject({ sent: 1 });
+      expect(vapidSubject()).toBe('https://nbpc.evn.vn');
+    } finally {
+      config.publicDomain = old;
+    }
+  });
+
+  it('bị từ chối chữ ký (khoá cũ) → lần mở app sau máy chủ báo trình duyệt đăng ký lại', async () => {
+    const { head, staffA } = await org();
+    const k = browserKeys();
+    const subscription = { endpoint: `${base}/push/stale`, keys: k.keys };
+    expect((await as(staffA).post('/api/push/subscribe', { subscription })).body.needsRefresh).toBe(false);
+    nextStatus = 403;
+    await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    // Trình duyệt đồng bộ khi mở app → được yêu cầu tạo đăng ký mới
+    expect((await as(staffA).post('/api/push/subscribe', { subscription })).body.needsRefresh).toBe(true);
+    // Đăng ký mới (endpoint khác) → bình thường
+    nextStatus = 201;
+    const fresh = { endpoint: `${base}/push/fresh`, keys: browserKeys().keys };
+    expect((await as(staffA).post('/api/push/subscribe', { subscription: fresh })).body.needsRefresh).toBe(false);
   });
 });

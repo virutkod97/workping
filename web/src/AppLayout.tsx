@@ -90,13 +90,25 @@ export default function AppLayout() {
           {menu}
         </Layout.Sider>
       ) : (
-        <Drawer open={drawer} onClose={() => setDrawer(false)} placement="left" size={240} styles={{ body: { padding: 0, background: '#001529' }, header: { display: 'none' } }}>
+        <Drawer open={drawer} onClose={() => setDrawer(false)} placement="left" size={240} styles={{ body: { padding: 0, paddingTop: 'var(--sat)', background: '#001529' }, header: { display: 'none' } }}>
           {brand}
           {menu}
         </Drawer>
       )}
       <Layout>
-        <Layout.Header style={{ background: '#fff', padding: '0 16px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid #f0f0f0' }}>
+        <Layout.Header
+          style={{
+            background: '#fff',
+            padding: '0 16px',
+            // Chừa chỗ cho thanh trạng thái iPhone (app mở từ Màn hình chính)
+            paddingTop: 'var(--sat)',
+            height: 'calc(64px + var(--sat))',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            borderBottom: '1px solid #f0f0f0',
+          }}
+        >
           {!screens.lg && <Button type="text" icon={<MenuOutlined />} onClick={() => setDrawer(true)} />}
           <div style={{ flex: 1 }} />
           <Badge count={unread?.count} size="small">

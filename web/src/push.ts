@@ -73,7 +73,7 @@ const storedKey = () => {
 };
 
 /** fresh = true: luôn tạo đăng ký mới (chỉ dùng khi người dùng bấm nút — iOS cần thao tác trực tiếp) */
-async function subscribeAndSave(fresh = false): Promise<void> {
+async function subscribeAndSave(fresh = false): Promise<{ needsRefresh?: boolean }> {
   const reg = await navigator.serviceWorker.ready;
   const key = await preloadPushKey();
   let sub = await reg.pushManager.getSubscription();
@@ -83,6 +83,8 @@ async function subscribeAndSave(fresh = false): Promise<void> {
     const saved = storedKey();
     // Khoá máy chủ khác với lúc đăng ký → dịch vụ push (Apple) sẽ từ chối (BadJwtToken) → đăng ký lại
     if (fresh || (cur && cur !== key) || (saved && saved !== key)) {
+      // Gỡ đăng ký cũ ở máy chủ trước, rồi tạo đăng ký mới (endpoint mới)
+      await api.post('/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => undefined);
       await sub.unsubscribe();
       sub = null;
     }
@@ -93,8 +95,11 @@ async function subscribeAndSave(fresh = false): Promise<void> {
   } catch {
     /* bỏ qua */
   }
-  await api.post('/push/subscribe', { subscription: sub.toJSON(), userAgent: navigator.userAgent.slice(0, 500) });
+  return api.post<{ needsRefresh?: boolean }>('/push/subscribe', { subscription: sub.toJSON(), userAgent: navigator.userAgent.slice(0, 500) });
 }
+
+/** Máy tính (không phải điện thoại/máy tính bảng) */
+export const isDesktop = () => !isIOS() && !isAndroid() && !/Mobi|Tablet/i.test(navigator.userAgent);
 
 /** Gọi TRỰC TIẾP trong sự kiện bấm nút (iOS yêu cầu) */
 export async function enablePush(): Promise<PushState> {
@@ -110,7 +115,9 @@ export async function syncPush() {
   try {
     if (!window.isSecureContext || !supported() || Notification.permission !== 'granted') return;
     if (isIOS() && !isStandalone()) return;
-    await subscribeAndSave();
+    const r = await subscribeAndSave();
+    // Máy chủ báo đăng ký này bị dịch vụ push từ chối (khoá cũ) → tự tạo đăng ký mới
+    if (r.needsRefresh) await subscribeAndSave(true);
   } catch (e) {
     console.warn('[push] đồng bộ thất bại', e);
   }

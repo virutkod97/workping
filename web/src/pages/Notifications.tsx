@@ -4,8 +4,9 @@ import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { Notification } from '../types';
+import { PushDeviceBar } from '../components/PushSetup';
 
-const ICON: Record<string, string> = { ASSIGNED: '📌', STATUS: '✅', COMMENT: '💬', REMINDER: '⏰', DIGEST: '📋', UPDATED: '✏️' };
+const ICON: Record<string, string> = { ASSIGNED: '📌', STATUS: '✅', COMMENT: '💬', REMINDER: '⏰', DIGEST: '📋', UPDATED: '✏️', SYSTEM: '🔒' };
 
 export default function Notifications() {
   const nav = useNavigate();
@@ -18,7 +19,7 @@ export default function Notifications() {
       qc.invalidateQueries({ queryKey: ['notifications'] });
       qc.invalidateQueries({ queryKey: ['unread'] });
     }
-    nav(n.taskId ? `/tasks/${n.taskId}` : '/my-work');
+    nav(n.taskId ? `/tasks/${n.taskId}` : n.type === 'SYSTEM' ? '/settings' : '/my-work');
   };
   return (
     <>
@@ -26,6 +27,7 @@ export default function Notifications() {
         <Typography.Title level={4} style={{ margin: 0 }}>Thông báo</Typography.Title>
         <Button onClick={() => readAll.mutate()}>Đánh dấu đã đọc tất cả</Button>
       </div>
+      <PushDeviceBar />
       <Card size="small">
         <List
           loading={isLoading}
