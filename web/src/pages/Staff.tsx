@@ -1,4 +1,4 @@
-import { App, Button, Card, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Tree, Typography } from 'antd';
+import { Alert, App, AutoComplete, Button, Card, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Tree, Typography } from 'antd';
 import { EditOutlined, KeyOutlined, PlusOutlined, StopOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
@@ -7,6 +7,7 @@ import { useAuth } from '../auth';
 import { useCategories, useUsers } from '../hooks';
 import type { Role, User } from '../types';
 import { ROLE_LABEL } from '../types';
+import { roleFromTitle, TITLE_OPTIONS } from '../roles';
 
 const ROLE_COLOR: Record<Role, string> = { ADMIN: 'magenta', HEAD: 'red', DEPUTY: 'orange', STAFF: 'blue' };
 
@@ -120,6 +121,8 @@ function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: U
   const { user: me } = useAuth();
   const { data: cats = [] } = useCategories();
   const role = Form.useWatch('role', form) as Role | undefined;
+  const title = Form.useWatch('title', form) as string | undefined;
+  const implied = roleFromTitle(title);
 
   useEffect(() => {
     if (!open) return;
@@ -147,7 +150,18 @@ function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: U
 
   return (
     <Modal title={user ? `Sửa ${user.fullName}` : 'Thêm nhân sự'} open={open} onCancel={onClose} onOk={() => form.submit()} confirmLoading={save.isPending} destroyOnHidden width={640}>
-      <Form form={form} layout="vertical" onFinish={save.mutate}>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={save.mutate}
+        onValuesChange={(ch) => {
+          // Chọn chức danh → tự đặt cấp tương ứng (Trưởng phòng / Phó trưởng phòng / Nhân viên)
+          if ('title' in ch) {
+            const r = roleFromTitle(ch.title as string | undefined);
+            if (form.getFieldValue('role') !== 'ADMIN') form.setFieldValue('role', r ?? 'STAFF');
+          }
+        }}
+      >
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Form.Item name="code" label="Mã NS" style={{ width: 120 }} tooltip="Bỏ trống để tự sinh (NS0xx)">
             <Input placeholder="tự sinh" />
@@ -157,15 +171,38 @@ function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: U
           </Form.Item>
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Form.Item name="role" label="Cấp (phân quyền giao việc)" rules={[{ required: true }]} style={{ flex: 1, minWidth: 180 }}>
+          <Form.Item name="title" label="Chức danh" style={{ flex: 1, minWidth: 180 }}>
+            <AutoComplete
+              options={TITLE_OPTIONS.map((v) => ({ value: v }))}
+              placeholder="Chọn hoặc gõ: Phó trưởng phòng, Chuyên viên..."
+              filterOption={(input, o) => String(o?.value).toLowerCase().includes(input.toLowerCase())}
+            />
+          </Form.Item>
+          <Form.Item
+            name="role"
+            label="Cấp (quyền giao việc)"
+            tooltip="Trưởng phòng: giao việc cho cả phòng. Phó trưởng phòng: giao/giao tiếp cho nhân viên nhóm mình. Nhân viên: chỉ nhận việc. Tự chọn theo chức danh."
+            rules={[{ required: true }]}
+            style={{ flex: 1, minWidth: 180 }}
+          >
             <Select
               options={(['HEAD', 'DEPUTY', 'STAFF', ...(me?.role === 'ADMIN' ? ['ADMIN'] : [])] as Role[]).map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
             />
           </Form.Item>
-          <Form.Item name="title" label="Chức danh" style={{ flex: 1, minWidth: 160 }}>
-            <Input placeholder="Chuyên viên, Kỹ sư..." />
-          </Form.Item>
         </div>
+        {implied && role && implied !== role && role !== 'ADMIN' && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            title={`Chức danh "${title}" nhưng Cấp đang là "${ROLE_LABEL[role]}"${role === 'STAFF' ? ' — người này sẽ KHÔNG giao việc được cho người khác' : ''}.`}
+            action={
+              <Button size="small" onClick={() => form.setFieldValue('role', implied)}>
+                Đổi thành {ROLE_LABEL[implied]}
+              </Button>
+            }
+          />
+        )}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Form.Item name="team" label="Bộ phận" style={{ flex: 1, minWidth: 160 }}>
             <Select allowClear options={cats.filter((c) => c.type === 'TEAM').map((c) => ({ value: c.name, label: c.name }))} />
@@ -176,7 +213,7 @@ function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: U
             tooltip="Nhân viên thuộc nhóm của Phó trưởng phòng được chọn. Phó trưởng phòng giao việc cho người ngoài nhóm sẽ bị cảnh báo và ghi nhận."
             style={{ flex: 1, minWidth: 200 }}
           >
-            <Select allowClear disabled={role === 'HEAD' || role === 'ADMIN'} options={managers.map((u) => ({ value: u.id, label: `${u.fullName} (${ROLE_LABEL[u.role]})` }))} />
+            <Select allowClear showSearch={{ optionFilterProp: 'label' }} placeholder="Chọn Phó trưởng phòng phụ trách nhóm" disabled={role === 'HEAD' || role === 'ADMIN'} options={managers.map((u) => ({ value: u.id, label: `${u.fullName} (${ROLE_LABEL[u.role]})` }))} />
           </Form.Item>
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>

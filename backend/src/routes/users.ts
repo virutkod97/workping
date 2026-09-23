@@ -9,6 +9,7 @@ import { idParam, parse } from '../lib/validate';
 import { assignableIds, groupLeadOf, isManagerRole, subordinateIds } from '../lib/permissions';
 import { config } from '../config';
 import { nextUserCode } from '../services/codes';
+import { effectiveRole } from '../lib/roles';
 
 export const usersRouter = Router();
 
@@ -32,7 +33,7 @@ const userBody = z.object({
   code: z.string().trim().min(1).optional(),
   fullName: z.string().trim().min(1, 'bắt buộc'),
   title: z.string().trim().nullable().optional(),
-  role: roleEnum.default('STAFF'),
+  role: roleEnum.optional(),
   team: z.string().trim().nullable().optional(),
   phone: z.string().trim().nullable().optional(),
   email: z.string().trim().email('email không hợp lệ').nullable().optional().or(z.literal('')),
@@ -111,6 +112,7 @@ usersRouter.get('/:id', async (req, res) => {
 
 usersRouter.post('/', requireRole('ADMIN', 'HEAD'), async (req, res) => {
   const body = parse(userBody, req.body);
+  body.role = effectiveRole(body.role, body.title);
   if (body.role === 'ADMIN' && me(req).role !== 'ADMIN') throw forbidden('Chỉ quản trị viên được tạo tài khoản quản trị');
   await checkManager(null, body.managerId);
   const code = body.code || (await nextUserCode());
@@ -157,6 +159,10 @@ usersRouter.put('/:id', async (req, res) => {
   }
 
   const body = parse(userBody.partial(), req.body);
+  if (body.role !== undefined || body.title !== undefined) {
+    const role = effectiveRole(body.role ?? existing.role, body.title !== undefined ? body.title : existing.title);
+    if (role !== existing.role || body.role !== undefined) body.role = role;
+  }
   if (u.role !== 'ADMIN' && (body.role === 'ADMIN' || existing.role === 'ADMIN')) {
     throw forbidden('Chỉ quản trị viên được sửa tài khoản quản trị');
   }

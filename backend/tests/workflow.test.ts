@@ -288,3 +288,29 @@ describe('nhóm của Phó trưởng phòng & giao ngoài nhóm', () => {
     expect(detail.body.activities.some((a: { content: string }) => a.content.startsWith('Giao tiếp mốc 1'))).toBe(true);
   });
 });
+
+describe('cấp theo chức danh khi tạo nhân sự trên web', () => {
+  it('chỉ điền chức danh "Phó trưởng phòng" (cấp để mặc định) → vẫn thành Phó trưởng phòng và giao tiếp được', async () => {
+    const { head } = await org();
+    const ptp = await as(head).post('/api/users', { fullName: 'PTP Mới', title: 'Phó trưởng phòng', role: 'STAFF' });
+    expect(ptp.body.role).toBe('DEPUTY');
+    const tp2 = await as(head).post('/api/users', { fullName: 'TP Khác', title: 'Trưởng phòng' });
+    expect(tp2.body.role).toBe('HEAD');
+    const nv = await as(head).post('/api/users', { fullName: 'NV Mới', title: 'Chuyên viên', managerId: ptp.body.id });
+    expect(nv.body.role).toBe('STAFF');
+
+    // Sửa chức danh một người đang là nhân viên → cấp đi theo
+    const up = await as(head).put(`/api/users/${nv.body.id}`, { title: 'Phó trưởng phòng' });
+    expect(up.body.role).toBe('DEPUTY');
+    await as(head).put(`/api/users/${nv.body.id}`, { title: 'Chuyên viên', role: 'STAFF' });
+
+    // Luồng giao việc: TP → PTP → giao tiếp xuống NV trong nhóm
+    const login = await request(app).post('/api/auth/login').send({ username: ptp.body.username, password: '123456' });
+    const t = await as(head).post('/api/tasks', { title: 'Báo cáo quý', ownerId: ptp.body.id });
+    const mid = t.body.milestones[0].id;
+    const d = await as({ token: login.body.token }).post(`/api/milestones/${mid}/delegate`, { assigneeId: nv.body.id });
+    expect(d.status).toBe(200);
+    expect(d.body.assignee.id).toBe(nv.body.id);
+    expect(d.body.outOfGroup).toBe(false);
+  });
+});

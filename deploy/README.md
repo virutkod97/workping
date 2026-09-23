@@ -81,7 +81,7 @@ Mất khoảng 3–5 phút. Cuối cùng script in ra:
 
 1. Mở địa chỉ web, đăng nhập `admin` với mật khẩu ở trên → hệ thống bắt đổi mật khẩu.
 2. **Cấu hình** → kiểm tra danh mục *Nhóm công việc* và *Bộ phận*.
-3. **Nhân sự → Thêm nhân sự**: tạo Trưởng phòng, các Phó trưởng phòng, rồi nhân viên — chọn **Cấp** và **Nhóm / quản lý trực tiếp** (nhân viên thuộc nhóm Phó trưởng phòng nào). Kiểm tra ở *Sơ đồ nhóm*.
+3. **Nhân sự → Thêm nhân sự**: tạo lần lượt Trưởng phòng → các Phó trưởng phòng → nhân viên. Chọn **Chức danh** (Cấp tự đặt theo: *Trưởng phòng*, *Phó trưởng phòng* hoặc *Nhân viên*) và với nhân viên chọn **Nhóm / quản lý trực tiếp** = Phó trưởng phòng phụ trách. Kiểm tra ở *Sơ đồ nhóm*.
 4. Báo cho mọi người: đăng nhập bằng **mã nhân sự viết thường** (vd `ns002`), mật khẩu mặc định `123456`, lần đầu phải đổi.
 5. **Cài lên điện thoại** (mỗi người tự làm, không cần tài khoản nhà phát triển):
    - **iPhone** (iOS 16.4+): mở `https://workping.congty.vn` bằng **Safari** → nút **Chia sẻ** → **Thêm vào MH chính** → mở WorkPing **từ biểu tượng** → đăng nhập → **Cài app & thông báo** → **Bật thông báo** → *Cho phép*.
