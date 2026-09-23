@@ -4,7 +4,6 @@ import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { Notification } from '../types';
-import { PushDeviceBar } from '../components/PushSetup';
 
 const ICON: Record<string, string> = { ASSIGNED: '📌', STATUS: '✅', COMMENT: '💬', REMINDER: '⏰', DIGEST: '📋', UPDATED: '✏️', SYSTEM: '🔒' };
 
@@ -27,7 +26,6 @@ export default function Notifications() {
         <Typography.Title level={4} style={{ margin: 0 }}>Thông báo</Typography.Title>
         <Button onClick={() => readAll.mutate()}>Đánh dấu đã đọc tất cả</Button>
       </div>
-      <PushDeviceBar />
       <Card size="small">
         <List
           loading={isLoading}

@@ -67,6 +67,7 @@ Tất cả tuỳ chọn:
 | `--https-port <số>` | Cổng HTTPS công khai (mặc định 443), VD `8443` |
 | `--ssl-cert <file>` `--ssl-key <file>` | Dùng chứng chỉ có sẵn (VD chứng chỉ wildcard của công ty) thay cho Let's Encrypt |
 | `--port <số>` | Cổng nội bộ của API (mặc định 4000) |
+| `--no-host-redirect` | Không tự chuyển truy cập bằng IP sang tên miền (mặc định: có chuyển, vì mở bằng IP thì lỗi chứng chỉ và không nhận được thông báo) |
 | `--no-nginx` | Không cài nginx (khi đã có reverse proxy khác) |
 
 Các tham số được nhớ trong `/etc/workping/install.conf`: lần sau chạy `update.sh` hoặc `install.sh` không cần gõ lại.

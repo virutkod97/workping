@@ -174,7 +174,7 @@ export function explainPushError(e: unknown, endpoint: string, sub?: { appServer
         : sub.appServerKey === null
           ? `Thiết bị chưa báo khoá đã dùng${synced} — thiết bị chưa mở WorkPing bản mới: mở WorkPing trên thiết bị đó để tự đăng ký lại. `
           : vapid && sub.appServerKey !== vapid.publicKey
-            ? `NGUYÊN NHÂN: thiết bị đăng ký bằng khoá VAPID cũ${synced} — mở WorkPing trên thiết bị đó, ứng dụng sẽ tự đăng ký lại (hoặc mục Thông báo → "Đăng ký lại"). `
+            ? `NGUYÊN NHÂN: thiết bị đăng ký bằng khoá VAPID cũ${synced} — mở WorkPing trên thiết bị đó, ứng dụng sẽ tự đăng ký lại (hoặc menu "Cài app & thông báo" → "Đăng ký lại"). `
             : `Khoá thiết bị khớp với máy chủ${synced}. `;
       return `${e.statusCode} ${body}: dịch vụ push từ chối chữ ký VAPID. ${keyInfo}${clock}VAPID_SUBJECT: "${vapidSubject()}".`;
     }

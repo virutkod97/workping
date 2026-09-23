@@ -28,6 +28,7 @@ SKIP_NGINX=0
 HTTPS_PORT=443
 SSL_CERT=""
 SSL_KEY=""
+HOST_REDIRECT=1
 INSTALL_CONF=$CONF_DIR/install.conf
 ACME_ROOT=/var/www/letsencrypt
 
@@ -52,6 +53,7 @@ Cách dùng: sudo bash deploy/install.sh [tuỳ chọn]
   --ssl-cert <file>       Dùng chứng chỉ có sẵn (fullchain .pem/.crt) thay cho Let's Encrypt
   --ssl-key <file>        Khoá riêng của chứng chỉ trên
   --port <số>             Cổng nội bộ của API (mặc định 4000)
+  --no-host-redirect      Không tự chuyển truy cập bằng IP sang tên miền
   --no-nginx              Không cài/cấu hình nginx (tự dùng reverse proxy khác)
   -h, --help              Hiện hướng dẫn này
 USAGE
@@ -67,6 +69,8 @@ while [[ $# -gt 0 ]]; do
     --ssl-cert) SSL_CERT="$2"; shift 2 ;;
     --ssl-key) SSL_KEY="$2"; shift 2 ;;
     --no-nginx) SKIP_NGINX=1; shift ;;
+    --no-host-redirect) HOST_REDIRECT=0; shift ;;
+    --host-redirect) HOST_REDIRECT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Tuỳ chọn không hợp lệ: $1"; usage; exit 1 ;;
   esac
@@ -239,6 +243,7 @@ HTTPS_PORT="$HTTPS_PORT"
 SSL_CERT="$SSL_CERT"
 SSL_KEY="$SSL_KEY"
 SKIP_NGINX="$SKIP_NGINX"
+HOST_REDIRECT="$HOST_REDIRECT"
 CONF
 chmod 640 "$INSTALL_CONF"
 
@@ -282,10 +287,14 @@ ok "Dịch vụ $APP_NAME đang chạy: $(curl -fsS "http://127.0.0.1:$PORT/api/
 # ------------------------------ 9. Nginx + HTTPS ------------------------------
 step "9/9 Nginx"
 SITE=/etc/nginx/sites-available/$APP_NAME
+# Địa chỉ đích khi chuyển hướng: tên miền chính (nếu bật chuyển IP → tên miền), không thì giữ địa chỉ người dùng gõ
+if [[ -n "$DOMAIN" && $HOST_REDIRECT == 1 ]]; then CANON_HOST=$DOMAIN; else CANON_HOST='$host'; fi
 write_site() { # $1 = template, $2/$3 = cert/key
   sed -e "s#@SERVER_NAME@#${DOMAIN:-_}#g" -e "s#@PORT@#$PORT#g" -e "s#@HTTPS_PORT@#$HTTPS_PORT#g" \
       -e "s#@HTTPS_SUFFIX@#$HTTPS_SUFFIX#g" -e "s#@ACME_ROOT@#$ACME_ROOT#g" \
-      -e "s#@SSL_CERT@#${2:-}#g" -e "s#@SSL_KEY@#${3:-}#g" "$APP_DIR/deploy/$1" > "$SITE"
+      -e "s#@SSL_CERT@#${2:-}#g" -e "s#@SSL_KEY@#${3:-}#g" -e "s#@CANON_HOST@#$CANON_HOST#g" "$APP_DIR/deploy/$1" > "$SITE"
+  # Chuyển IP → tên miền: chỉ bật khi có tên miền
+  if [[ -n "$DOMAIN" && $HOST_REDIRECT == 1 ]]; then sed -i 's/^\(\s*\)#HOSTREDIRECT /\1/' "$SITE"; else sed -i '/#HOSTREDIRECT /d' "$SITE"; fi
   # Máy chủ tắt IPv6 → bỏ dòng listen [::]
   [[ -f /proc/net/if_inet6 ]] || sed -i '/listen \[::\]/d' "$SITE"
   nginx -t -q
