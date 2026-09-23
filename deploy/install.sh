@@ -125,6 +125,11 @@ PKGS=(ca-certificates curl gnupg rsync postgresql postgresql-contrib openssl tzd
 [[ "$TLS_MODE" == le ]] && PKGS+=(certbot)
 apt-get install -y -qq "${PKGS[@]}" >/dev/null
 ok "Đã cài: ${PKGS[*]}"
+# Đồng hồ lệch → Apple từ chối thông báo đẩy (BadJwtToken): bật đồng bộ giờ tự động
+timedatectl set-ntp true 2>/dev/null || true
+if [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == "no" ]]; then
+  warn "Đồng hồ máy chủ chưa đồng bộ NTP (có thể bị chặn UDP 123) — giờ hiện tại: $(date '+%d/%m/%Y %H:%M:%S')"
+fi
 
 # ------------------------------ 2. Node.js ------------------------------
 step "2/9 Node.js $NODE_MAJOR"

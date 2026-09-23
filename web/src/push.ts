@@ -62,19 +62,37 @@ function b64ToBytes(b64: string) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
-async function subscribeAndSave(): Promise<void> {
+/** Khoá máy chủ đã dùng khi đăng ký trên thiết bị này (Safari không phải lúc nào cũng trả về options.applicationServerKey) */
+const KEY_STORE = 'workping_push_key';
+const storedKey = () => {
+  try {
+    return localStorage.getItem(KEY_STORE);
+  } catch {
+    return null;
+  }
+};
+
+/** fresh = true: luôn tạo đăng ký mới (chỉ dùng khi người dùng bấm nút — iOS cần thao tác trực tiếp) */
+async function subscribeAndSave(fresh = false): Promise<void> {
   const reg = await navigator.serviceWorker.ready;
   const key = await preloadPushKey();
   let sub = await reg.pushManager.getSubscription();
-  // Khoá máy chủ đổi → đăng ký lại
-  if (sub && sub.options.applicationServerKey) {
-    const cur = btoa(String.fromCharCode(...new Uint8Array(sub.options.applicationServerKey))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    if (cur !== key) {
+  if (sub) {
+    const raw = sub.options?.applicationServerKey;
+    const cur = raw ? btoa(String.fromCharCode(...new Uint8Array(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : null;
+    const saved = storedKey();
+    // Khoá máy chủ khác với lúc đăng ký → dịch vụ push (Apple) sẽ từ chối (BadJwtToken) → đăng ký lại
+    if (fresh || (cur && cur !== key) || (saved && saved !== key)) {
       await sub.unsubscribe();
       sub = null;
     }
   }
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+  try {
+    localStorage.setItem(KEY_STORE, key);
+  } catch {
+    /* bỏ qua */
+  }
   await api.post('/push/subscribe', { subscription: sub.toJSON(), userAgent: navigator.userAgent.slice(0, 500) });
 }
 
@@ -82,7 +100,8 @@ async function subscribeAndSave(): Promise<void> {
 export async function enablePush(): Promise<PushState> {
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') return perm === 'denied' ? 'denied' : 'default';
-  await subscribeAndSave();
+  // Bấm "Bật" = luôn tạo đăng ký mới → sửa được đăng ký hỏng / khoá cũ
+  await subscribeAndSave(true);
   return 'on';
 }
 
@@ -104,6 +123,11 @@ export async function disablePush() {
     if (!sub) return;
     await api.post('/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => undefined);
     await sub.unsubscribe();
+    try {
+      localStorage.removeItem(KEY_STORE);
+    } catch {
+      /* bỏ qua */
+    }
   } catch {
     /* bỏ qua */
   }

@@ -159,6 +159,9 @@ export function PushSetupCard() {
           </Tag>
           <Space wrap>
             <Button onClick={test}>Gửi thông báo thử</Button>
+            <Button loading={busy} onClick={turnOn} title="Tạo lại đăng ký nhận thông báo trên thiết bị này">
+              Đăng ký lại
+            </Button>
             <Button
               danger
               onClick={async () => {

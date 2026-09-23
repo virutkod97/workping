@@ -14,6 +14,7 @@ export default defineConfig({
       REMIND_DAYS: '3,1,0',
       // push.test dùng dịch vụ push giả trên 127.0.0.1
       PUSH_ALLOW_ANY_ENDPOINT: '1',
+      VAPID_SUBJECT: 'mailto:it@congty.vn',
     },
   },
 });

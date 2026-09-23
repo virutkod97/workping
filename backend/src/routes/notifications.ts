@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { me } from '../lib/auth';
 import { config } from '../config';
 import { idParam, parse } from '../lib/validate';
-import { checkPushConnectivity, deviceLabel, getVapid, isAllowedPushEndpoint, sendPushDetailed } from '../services/push';
+import { checkPushConnectivity, deviceLabel, getClockSkewMs, getVapid, isAllowedPushEndpoint, sendPushDetailed, vapidSubject } from '../services/push';
 import { requirePasswordChanged, requireRole } from '../lib/auth';
 import { notFound } from '../lib/errors';
 
@@ -121,5 +121,13 @@ pushRouter.post('/admin/test', ...adminOnly, async (req, res) => {
 
 /** Máy chủ có ra được Internet tới dịch vụ push của Apple / Google / Mozilla không */
 pushRouter.post('/admin/connectivity', ...adminOnly, async (_req, res) => {
-  res.json({ proxy: config.pushProxy || null, vapidSubject: config.vapidSubject, results: await checkPushConnectivity() });
+  const results = await checkPushConnectivity();
+  res.json({
+    proxy: config.pushProxy || null,
+    vapidSubject: vapidSubject(),
+    configuredSubject: config.vapidSubject,
+    clockSkewSec: Math.round(getClockSkewMs() / 1000),
+    serverTime: new Date().toISOString(),
+    results,
+  });
 });

@@ -9,6 +9,8 @@ import type { AddressInfo } from 'node:net';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const ece = require('http_ece') as { decrypt: (buf: Buffer, opts: Record<string, unknown>) => Buffer };
 import { as, day, org, prisma, resetDb } from './helpers';
+import { config } from '../src/config';
+import { vapidSubject } from '../src/services/push';
 
 /**
  * Giả lập dịch vụ push của trình duyệt (như web.push.apple.com / fcm.googleapis.com) bằng HTTPS server cục bộ,
@@ -18,6 +20,23 @@ let server: https.Server;
 let base = '';
 let nextStatus = 201;
 const received: { path: string; headers: Record<string, unknown>; body: Buffer }[] = [];
+/** Giả lập Apple: kiểm tra chữ ký & hạn token VAPID theo "giờ thật" của dịch vụ (lệch so với máy chủ appleOffsetMs) */
+let appleMode = false;
+let appleOffsetMs = 0;
+
+function appleCheck(auth: string): string | null {
+  const m = /^vapid t=([^.]+)\.([^.]+)\.([^,]+), k=(.+)$/.exec(auth);
+  if (!m) return 'BadJwtToken';
+  const [, h, p, sig, k] = m;
+  const pub = Buffer.from(k, 'base64url');
+  const key = crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'), y: pub.subarray(33, 65).toString('base64url') }, format: 'jwk' });
+  if (!crypto.verify('sha256', Buffer.from(`${h}.${p}`), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(sig, 'base64url'))) return 'BadJwtToken';
+  const claims = JSON.parse(Buffer.from(p, 'base64url').toString());
+  const now = (Date.now() + appleOffsetMs) / 1000;
+  if (claims.exp < now || claims.exp > now + 24 * 3600) return 'BadJwtToken';
+  if (!/^(mailto:|https:\/\/)/.test(claims.sub) || /example\.com|localhost/.test(claims.sub)) return 'BadJwtToken';
+  return null;
+}
 
 beforeAll(async () => {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -28,7 +47,12 @@ beforeAll(async () => {
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       received.push({ path: req.url!, headers: req.headers, body: Buffer.concat(chunks) });
-      res.writeHead(nextStatus).end();
+      const date = new Date(Date.now() + appleOffsetMs).toUTCString();
+      if (appleMode) {
+        const reason = appleCheck(String(req.headers.authorization));
+        if (reason) return void res.writeHead(403, { 'content-type': 'application/json', date }).end(JSON.stringify({ reason }));
+      }
+      res.writeHead(nextStatus, { date }).end();
     });
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -38,6 +62,8 @@ afterAll(() => server.close());
 beforeEach(async () => {
   await resetDb();
   received.length = 0;
+  appleMode = false;
+  appleOffsetMs = 0;
   nextStatus = 201;
 });
 
@@ -165,5 +191,58 @@ describe('Web Push (PWA)', () => {
     const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
     expect(r.body.results[0].ok).toBe(false);
     expect(r.body.results[0].error).toMatch(/ECONNREFUSED.*PUSH_PROXY/);
+  });
+
+  it('Apple kiểm tra chữ ký VAPID: token hợp lệ được nhận', async () => {
+    const { head, staffA } = await org();
+    const k = browserKeys();
+    await as(staffA).post('/api/push/subscribe', { subscription: { endpoint: `${base}/push/iphone`, keys: k.keys } });
+    appleMode = true;
+    const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect(r.body).toMatchObject({ sent: 1 });
+    const claims = JSON.parse(Buffer.from(String(received[0].headers.authorization).split('.')[1], 'base64url').toString());
+    expect(claims.aud).toBe(base);
+  });
+
+  it('đồng hồ máy chủ lệch nhiều giờ (Apple báo BadJwtToken) → tự bù lệch và gửi lại thành công', async () => {
+    const { head, staffA } = await org();
+    const k = browserKeys();
+    await as(staffA).post('/api/push/subscribe', { subscription: { endpoint: `${base}/push/iphone`, keys: k.keys } });
+    appleMode = true;
+    appleOffsetMs = 20 * 3600 * 1000; // máy chủ chạy chậm 20 giờ → token (hạn 12h) đã hết hạn theo giờ Apple
+    const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect(r.body).toMatchObject({ sent: 1, results: [{ ok: true }] });
+    expect(received).toHaveLength(2); // lần 1 bị từ chối, lần 2 đã bù giờ
+    // Lần sau dùng luôn độ lệch đã đo, không bị từ chối nữa
+    received.length = 0;
+    await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect(received).toHaveLength(1);
+    appleOffsetMs = 0;
+    await as(head).post('/api/push/admin/test', { userId: staffA.id });
+  });
+
+  it('VAPID_SUBJECT là địa chỉ mẫu → tự dùng https://tên-miền; lỗi 403 giải thích rõ nguyên nhân', async () => {
+    const { head, staffA } = await org();
+    const k = browserKeys();
+    await as(staffA).post('/api/push/subscribe', { subscription: { endpoint: `${base}/push/iphone`, keys: k.keys } });
+    appleMode = true;
+    const old = { s: config.vapidSubject, d: config.publicDomain };
+    try {
+      Object.assign(config, { vapidSubject: 'mailto:admin@example.com', publicDomain: 'nbpc.evn.vn' });
+      expect(vapidSubject()).toBe('https://nbpc.evn.vn');
+      expect((await as(head).post('/api/push/admin/test', { userId: staffA.id })).body.sent).toBe(1);
+
+      // Không có tên miền để thay → vẫn lỗi, nhưng thông báo nói rõ subject đang dùng & cách xử lý
+      Object.assign(config, { publicDomain: '' });
+      const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
+      expect(r.body.results[0].error).toContain('BadJwtToken');
+      expect(r.body.results[0].error).toContain('mailto:admin@example.com');
+      expect(r.body.results[0].error).toContain('Tắt rồi Bật lại');
+
+      Object.assign(config, { vapidSubject: 'mailto:anhnd1097@gmail.com' });
+      expect(vapidSubject()).toBe('mailto:anhnd1097@gmail.com');
+    } finally {
+      Object.assign(config, { vapidSubject: old.s, publicDomain: old.d });
+    }
   });
 });

@@ -47,8 +47,19 @@ interface SendResult {
 interface Connectivity {
   proxy: string | null;
   vapidSubject: string;
-  results: { host: string; ok: boolean; ms: number; error?: string }[];
+  configuredSubject: string;
+  serverTime: string;
+  results: { host: string; ok: boolean; ms: number; error?: string; clockSkewSec?: number }[];
 }
+
+/** Độ lệch đồng hồ lớn nhất đo được (giây) */
+const maxSkew = (r: Connectivity) =>
+  r.results.reduce((m, x) => (x.clockSkewSec !== undefined && Math.abs(x.clockSkewSec) > Math.abs(m) ? x.clockSkewSec : m), 0);
+const fmtSkew = (sec: number) => {
+  const a = Math.abs(sec);
+  const t = a >= 3600 ? `${(a / 3600).toFixed(1)} giờ` : a >= 60 ? `${Math.round(a / 60)} phút` : `${a} giây`;
+  return `${sec > 0 ? "nhanh" : "chậm"} ${t}`;
+};
 
 const fmt = (s: string | null) =>
   s
@@ -152,7 +163,9 @@ export function PushAdminCard() {
     onSuccess: (r) => {
       const ok = r.results.every((x) => x.ok);
       const badSubject = /example\.com|localhost/.test(r.vapidSubject);
-      (ok && !badSubject ? modal.success : ok ? modal.warning : modal.error)({
+      const skew = maxSkew(r);
+      const badClock = Math.abs(skew) > 60;
+      (ok && !badSubject && !badClock ? modal.success : ok ? modal.warning : modal.error)({
         title: ok
           ? "Máy chủ kết nối được tới các dịch vụ thông báo đẩy"
           : "Máy chủ KHÔNG kết nối được dịch vụ thông báo đẩy",
@@ -182,6 +195,22 @@ export function PushAdminCard() {
                 </List.Item>
               )}
             />
+            {badClock && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 8 }}
+                title={`Đồng hồ máy chủ ${fmtSkew(skew)} so với Apple/Google — đây là nguyên nhân hay gặp của lỗi BadJwtToken. Hệ thống đã tự bù, nhưng nên sửa giờ máy chủ: sudo timedatectl set-ntp true (máy chủ cần ra được NTP, cổng UDP 123)`}
+              />
+            )}
+            {r.configuredSubject !== r.vapidSubject && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 8 }}
+                title={`VAPID_SUBJECT cấu hình "${r.configuredSubject}" không hợp lệ với Apple — hệ thống đang tự dùng "${r.vapidSubject}"`}
+              />
+            )}
             {/example\.com|localhost/.test(r.vapidSubject) && (
               <Alert
                 type="error"
@@ -193,7 +222,8 @@ export function PushAdminCard() {
             <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
               web.push.apple.com: iPhone/iPad · fcm.googleapis.com: Android,
               Chrome, Edge · Proxy: {r.proxy ?? "không dùng"} · VAPID:{" "}
-              {r.vapidSubject}
+              {r.vapidSubject} · Giờ máy chủ: {new Date(r.serverTime).toLocaleString("vi-VN")}
+              {!badClock && r.results.some((x) => x.clockSkewSec !== undefined) && " (chuẩn)"}
             </Typography.Paragraph>
           </>
         ),
