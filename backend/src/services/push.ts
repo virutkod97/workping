@@ -60,6 +60,7 @@ export function vapidSubject(): string {
 export function resetPushState() {
   preferDomainSubject = false;
   clockSkewMs = 0;
+  skewMeasured = false;
 }
 
 /**
@@ -68,6 +69,7 @@ export function resetPushState() {
  * hết hạn / hạn quá xa → 403 BadJwtToken. Tự bù độ lệch khi ký token.
  */
 let clockSkewMs = 0;
+let skewMeasured = false;
 export const getClockSkewMs = () => clockSkewMs;
 /** Cập nhật độ lệch từ header Date (độ phân giải 1 giây → bỏ qua lệch < 30 giây) */
 export function observeServerDate(date: string | undefined | null): number | null {
@@ -75,7 +77,24 @@ export function observeServerDate(date: string | undefined | null): number | nul
   if (!Number.isFinite(t)) return null;
   const diff = Date.now() - t;
   clockSkewMs = Math.abs(diff) > 30_000 ? diff : 0;
+  skewMeasured = true;
   return diff;
+}
+
+/** Đo độ lệch đồng hồ qua header Date của Google (dùng khi dịch vụ push không trả header Date) */
+export async function measureClockSkew(): Promise<number | null> {
+  const { HttpsProxyAgent } = await import('https-proxy-agent');
+  const https = await import('node:https');
+  const agent = config.pushProxy ? new HttpsProxyAgent(config.pushProxy) : undefined;
+  return new Promise((resolve) => {
+    const req = https.request({ host: 'fcm.googleapis.com', port: 443, method: 'HEAD', path: '/', agent, timeout: 8000 }, (res) => {
+      res.resume();
+      resolve(observeServerDate(res.headers.date));
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(null));
+    req.end();
+  });
 }
 
 /** Ký token VAPID (ES256) theo giờ đã bù lệch, hạn 12 giờ (Apple chấp nhận tối đa 24 giờ) */
@@ -135,7 +154,7 @@ export function deviceLabel(ua: string | null | undefined, endpoint = ''): strin
 }
 
 /** Giải thích lỗi gửi push bằng tiếng Việt, kèm cách xử lý */
-export function explainPushError(e: unknown, endpoint: string): string {
+export function explainPushError(e: unknown, endpoint: string, sub?: { appServerKey: string | null; updatedAt: Date }): string {
   const host = (() => {
     try {
       return new URL(endpoint).hostname;
@@ -148,13 +167,16 @@ export function explainPushError(e: unknown, endpoint: string): string {
     if (e.statusCode === 404 || e.statusCode === 410) return `${e.statusCode}: thiết bị đã gỡ ứng dụng hoặc tắt thông báo — người dùng cần bật lại`;
     if (e.statusCode === 403 || e.statusCode === 401) {
       const skew = Math.round(clockSkewMs / 1000);
-      return (
-        `${e.statusCode} ${body}: dịch vụ push từ chối chữ ký VAPID. ` +
-        (skew ? `Đồng hồ máy chủ lệch ${skew} giây (đã tự bù) — nên bật đồng bộ giờ: sudo timedatectl set-ntp true. ` : '') +
-        `VAPID_SUBJECT đang dùng: "${vapidSubject()}". ` +
-        'Thường do thiết bị giữ đăng ký cũ (tạo bằng khoá khác): chỉ cần MỞ WorkPing trên thiết bị đó, ứng dụng sẽ tự đăng ký lại; ' +
-        'hoặc vào mục Thông báo → bấm "Đăng ký lại".'
-      );
+      const clock = skewMeasured ? (skew ? `Đồng hồ máy chủ lệch ${skew} giây (đã tự bù) — nên bật đồng bộ giờ: sudo timedatectl set-ntp true. ` : 'Đồng hồ máy chủ chuẩn. ') : '';
+      const synced = sub ? ` (thiết bị đồng bộ lần cuối ${sub.updatedAt.toLocaleString('vi-VN', { timeZone: config.tz })})` : '';
+      const keyInfo = !sub
+        ? ''
+        : sub.appServerKey === null
+          ? `Thiết bị chưa báo khoá đã dùng${synced} — thiết bị chưa mở WorkPing bản mới: mở WorkPing trên thiết bị đó để tự đăng ký lại. `
+          : vapid && sub.appServerKey !== vapid.publicKey
+            ? `NGUYÊN NHÂN: thiết bị đăng ký bằng khoá VAPID cũ${synced} — mở WorkPing trên thiết bị đó, ứng dụng sẽ tự đăng ký lại (hoặc mục Thông báo → "Đăng ký lại"). `
+            : `Khoá thiết bị khớp với máy chủ${synced}. `;
+      return `${e.statusCode} ${body}: dịch vụ push từ chối chữ ký VAPID. ${keyInfo}${clock}VAPID_SUBJECT: "${vapidSubject()}".`;
     }
     if (e.statusCode === 413) return '413: nội dung thông báo quá dài';
     if (e.statusCode === 429) return '429: gửi quá nhiều, dịch vụ push tạm chặn';
@@ -200,7 +222,8 @@ export async function sendPushDetailed(userId: number, p: PushPayload): Promise<
           if (!(e instanceof WebPushError && (e.statusCode === 401 || e.statusCode === 403))) throw e;
           // Bị từ chối token: (1) lệch giờ → đo lại từ header Date, bù và gửi lại
           const before = clockSkewMs;
-          observeServerDate(e.headers?.date);
+          if (e.headers?.date) observeServerDate(e.headers.date);
+          else await measureClockSkew();
           let last: unknown = e;
           if (clockSkewMs !== before) {
             console.warn(`[push] đồng hồ máy chủ lệch ${Math.round(clockSkewMs / 1000)} giây — đã tự bù, gửi lại`);
@@ -228,7 +251,7 @@ export async function sendPushDetailed(userId: number, p: PushPayload): Promise<
         await prisma.webPushSubscription.updateMany({ where: { id: s.id }, data: { lastOkAt: new Date(), lastError: null, lastErrorAt: null } });
         return { id: s.id, device, ok: true };
       } catch (e) {
-        const error = explainPushError(e, s.endpoint);
+        const error = explainPushError(e, s.endpoint, s);
         // 404/410: người dùng đã gỡ ứng dụng / thu hồi quyền → xoá đăng ký
         if (e instanceof WebPushError && (e.statusCode === 404 || e.statusCode === 410)) {
           await prisma.webPushSubscription.deleteMany({ where: { id: s.id } });
@@ -243,7 +266,8 @@ export async function sendPushDetailed(userId: number, p: PushPayload): Promise<
 }
 
 /** Đăng ký bị dịch vụ push từ chối chữ ký (401/403) ở lần gửi gần nhất → thiết bị cần đăng ký lại */
-export function needsRefresh(sub: { lastError: string | null; lastErrorAt: Date | null; lastOkAt: Date | null }): boolean {
+export function needsRefresh(sub: { lastError: string | null; lastErrorAt: Date | null; lastOkAt: Date | null; appServerKey?: string | null }): boolean {
+  if (sub.appServerKey && vapid && sub.appServerKey !== vapid.publicKey) return true;
   return !!sub.lastError && /^(401|403)\b/.test(sub.lastError) && !!sub.lastErrorAt && (!sub.lastOkAt || sub.lastErrorAt > sub.lastOkAt);
 }
 

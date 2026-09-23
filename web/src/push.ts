@@ -77,10 +77,12 @@ async function subscribeAndSave(fresh = false): Promise<{ needsRefresh?: boolean
   const reg = await navigator.serviceWorker.ready;
   const key = await preloadPushKey();
   let sub = await reg.pushManager.getSubscription();
+  let usedKey: string | null = null;
   if (sub) {
     const raw = sub.options?.applicationServerKey;
     const cur = raw ? btoa(String.fromCharCode(...new Uint8Array(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : null;
     const saved = storedKey();
+    usedKey = cur ?? saved;
     // Khoá máy chủ khác với lúc đăng ký → dịch vụ push (Apple) sẽ từ chối (BadJwtToken) → đăng ký lại
     if (fresh || (cur && cur !== key) || (saved && saved !== key)) {
       // Gỡ đăng ký cũ ở máy chủ trước, rồi tạo đăng ký mới (endpoint mới)
@@ -89,13 +91,18 @@ async function subscribeAndSave(fresh = false): Promise<{ needsRefresh?: boolean
       sub = null;
     }
   }
-  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+    usedKey = key;
+  }
   try {
-    localStorage.setItem(KEY_STORE, key);
+    // Chỉ ghi khi chắc chắn đăng ký dùng khoá hiện tại (không che mất đăng ký cũ chưa rõ khoá)
+    if (usedKey === key) localStorage.setItem(KEY_STORE, key);
   } catch {
     /* bỏ qua */
   }
-  return api.post<{ needsRefresh?: boolean }>('/push/subscribe', { subscription: sub.toJSON(), userAgent: navigator.userAgent.slice(0, 500) });
+  // Báo khoá đã dùng khi đăng ký → máy chủ phát hiện đăng ký bằng khoá cũ (Apple báo BadJwtToken)
+  return api.post<{ needsRefresh?: boolean }>('/push/subscribe', { subscription: sub.toJSON(), userAgent: navigator.userAgent.slice(0, 500), appServerKey: usedKey });
 }
 
 /** Máy tính (không phải điện thoại/máy tính bảng) */

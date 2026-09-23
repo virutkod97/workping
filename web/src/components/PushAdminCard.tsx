@@ -31,6 +31,7 @@ interface Device {
   lastOkAt: string | null;
   lastError: string | null;
   lastErrorAt: string | null;
+  keyOk: boolean | null;
 }
 interface Row {
   id: number;
@@ -90,6 +91,16 @@ function DeviceLine({ d }: { d: Device }) {
           Chưa gửi lần nào
         </Typography.Text>
       )}
+      <div style={{ fontSize: 12 }}>
+        <Typography.Text type="secondary">Mở app/đồng bộ lần cuối: {fmt(d.updatedAt)} · </Typography.Text>
+        {d.keyOk === true ? (
+          <Typography.Text type="success">khoá khớp</Typography.Text>
+        ) : d.keyOk === false ? (
+          <Typography.Text type="danger">đăng ký bằng khoá cũ — mở WorkPing trên thiết bị để tự đăng ký lại</Typography.Text>
+        ) : (
+          <Typography.Text type="warning">chưa mở WorkPing bản mới trên thiết bị này</Typography.Text>
+        )}
+      </div>
     </div>
   );
 }

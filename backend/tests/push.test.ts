@@ -241,7 +241,7 @@ describe('Web Push (PWA)', () => {
       const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
       expect(r.body.results[0].error).toContain('BadJwtToken');
       expect(r.body.results[0].error).toContain('mailto:admin@example.com');
-      expect(r.body.results[0].error).toContain('Đăng ký lại');
+      expect(r.body.results[0].error).toMatch(/đăng ký lại/i);
 
       Object.assign(config, { vapidSubject: 'mailto:anhnd1097@gmail.com' });
       expect(vapidSubject()).toBe('mailto:anhnd1097@gmail.com');
@@ -280,5 +280,31 @@ describe('Web Push (PWA)', () => {
     nextStatus = 201;
     const fresh = { endpoint: `${base}/push/fresh`, keys: browserKeys().keys };
     expect((await as(staffA).post('/api/push/subscribe', { subscription: fresh })).body.needsRefresh).toBe(false);
+  });
+
+  it('điện thoại đăng ký bằng khoá VAPID cũ → báo đúng nguyên nhân, yêu cầu đăng ký lại ngay khi đồng bộ', async () => {
+    const { head, staffA } = await org();
+    const k = browserKeys();
+    const current = (await as(staffA).get('/api/push/public-key')).body.publicKey;
+    const subscription = { endpoint: `${base}/push/old-key`, keys: k.keys };
+    // Đồng bộ với khoá cũ → máy chủ yêu cầu tạo đăng ký mới luôn
+    const sync = await as(staffA).post('/api/push/subscribe', { subscription, appServerKey: 'KHOA-CU' });
+    expect(sync.body.needsRefresh).toBe(true);
+    // Bảng quản trị thấy khoá lệch
+    const list = await as(head).get('/api/push/admin/devices');
+    expect(list.body.find((u: { id: number }) => u.id === staffA.id).devices[0].keyOk).toBe(false);
+    // Apple từ chối → thông báo lỗi chỉ đúng nguyên nhân
+    nextStatus = 403;
+    const r = await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect(r.body.results[0].error).toContain('NGUYÊN NHÂN: thiết bị đăng ký bằng khoá VAPID cũ');
+
+    // Đăng ký lại bằng khoá hiện tại → khớp
+    nextStatus = 201;
+    const fresh = { endpoint: `${base}/push/new-key`, keys: browserKeys().keys };
+    expect((await as(staffA).post('/api/push/subscribe', { subscription: fresh, appServerKey: current })).body.needsRefresh).toBe(false);
+    await as(staffA).post('/api/push/unsubscribe', { endpoint: subscription.endpoint });
+    const after = await as(head).get('/api/push/admin/devices');
+    expect(after.body.find((u: { id: number }) => u.id === staffA.id).devices.map((d: { keyOk: boolean }) => d.keyOk)).toEqual([true]);
+    expect((await as(head).post('/api/push/admin/test', { userId: staffA.id })).body.sent).toBe(1);
   });
 });
