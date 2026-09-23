@@ -20,9 +20,12 @@ export const tokenStore = {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Nội dung JSON lỗi từ server (vd code OUT_OF_GROUP + danh sách người ngoài nhóm) */
+  data: Record<string, unknown>;
+  constructor(status: number, message: string, data: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -43,14 +46,14 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   }
   const res = await fetch(`/api${url}`, { method, headers, body: payload });
   if (!res.ok) {
-    let msg = `Lỗi ${res.status}`;
+    let data: Record<string, unknown> = {};
     try {
-      msg = (await res.json()).error || msg;
+      data = await res.json();
     } catch {
       /* không phải JSON */
     }
     if (res.status === 401 && token) onUnauthorized?.();
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, (data.error as string) || `Lỗi ${res.status}`, data);
   }
   return res.json() as Promise<T>;
 }

@@ -6,6 +6,7 @@ import { api } from '../api';
 import type { Milestone } from '../types';
 import { MILESTONE_STATUS_LABEL } from '../types';
 import { AssigneeSelect } from './UserSelect';
+import { isCancelled, useOutOfGroupGuard } from '../outOfGroup';
 
 const toStr = (d?: Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null);
 const statusOptions = Object.entries(MILESTONE_STATUS_LABEL).map(([value, label]) => ({ value, label }));
@@ -16,6 +17,7 @@ export function MilestoneFormModal(props: { open: boolean; taskId: number; miles
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const qc = useQueryClient();
+  const guard = useOutOfGroupGuard();
 
   useEffect(() => {
     if (!open) return;
@@ -32,14 +34,16 @@ export function MilestoneFormModal(props: { open: boolean; taskId: number; miles
   const save = useMutation({
     mutationFn: (v: Record<string, unknown>) => {
       const body = { ...v, dueDate: toStr(v.dueDate as Dayjs), assigneeId: v.assigneeId ?? null };
-      return milestone ? api.put(`/milestones/${milestone.id}`, body) : api.post(`/tasks/${taskId}/milestones`, body);
+      return guard((extra) =>
+        milestone ? api.put(`/milestones/${milestone.id}`, { ...body, ...extra }) : api.post(`/tasks/${taskId}/milestones`, { ...body, ...extra }),
+      );
     },
     onSuccess: () => {
       message.success('Đã lưu mốc công việc');
       qc.invalidateQueries();
       onClose();
     },
-    onError: (e: Error) => message.error(e.message),
+    onError: (e: Error) => !isCancelled(e) && message.error(e.message),
   });
 
   return (
@@ -139,6 +143,58 @@ export function ProgressModal(props: { open: boolean; milestone: Milestone | nul
         )}
         <Form.Item name="note" label="Ghi chú / báo cáo">
           <Input.TextArea autoSize={{ minRows: 2 }} placeholder="Kết quả, vướng mắc..." />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+/**
+ * Giao tiếp: Phó trưởng phòng (hoặc người quản lý) chuyển mốc mình đang nhận xuống nhân viên.
+ */
+export function DelegateModal(props: { milestone: Milestone | null; onClose: () => void }) {
+  const { milestone, onClose } = props;
+  const [form] = Form.useForm();
+  const { message } = App.useApp();
+  const qc = useQueryClient();
+  const guard = useOutOfGroupGuard();
+
+  useEffect(() => {
+    if (milestone) {
+      form.resetFields();
+      form.setFieldsValue({ dueDate: milestone.dueDate ? dayjs(milestone.dueDate) : null });
+    }
+  }, [milestone, form]);
+
+  const save = useMutation({
+    mutationFn: (v: { assigneeId: number; dueDate?: Dayjs | null; note?: string }) =>
+      guard((extra) =>
+        api.post(`/milestones/${milestone!.id}/delegate`, { assigneeId: v.assigneeId, dueDate: toStr(v.dueDate), note: v.note || null, ...extra }),
+      ),
+    onSuccess: () => {
+      message.success('Đã giao tiếp mốc công việc');
+      qc.invalidateQueries();
+      onClose();
+    },
+    onError: (e: Error) => !isCancelled(e) && message.error(e.message),
+  });
+
+  return (
+    <Modal title="Giao tiếp cho nhân viên" open={!!milestone} onCancel={onClose} onOk={() => form.submit()} okText="Giao tiếp" confirmLoading={save.isPending} destroyOnHidden>
+      {milestone && (
+        <p style={{ color: '#555' }}>
+          Mốc {milestone.seq}: {milestone.content}
+        </p>
+      )}
+      <Form form={form} layout="vertical" onFinish={save.mutate}>
+        <Form.Item name="assigneeId" label="Giao cho" rules={[{ required: true, message: 'Chọn người thực hiện' }]}>
+          <AssigneeSelect excludeId={milestone?.assignee?.id} />
+        </Form.Item>
+        <Form.Item name="dueDate" label="Hạn hoàn thành">
+          <DatePicker format="DD/MM/YYYY" style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item name="note" label="Chỉ đạo / ghi chú">
+          <Input.TextArea autoSize={{ minRows: 2 }} placeholder="Yêu cầu cụ thể cho người thực hiện" />
         </Form.Item>
       </Form>
     </Modal>

@@ -50,10 +50,11 @@ function date(cell: ExcelJS.Cell): Date | null {
 
 const norm = (s: string) => s.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
 
-function roleFromTitle(title: string | null): Role {
+export function roleFromTitle(title: string | null): Role {
   const t = norm(title ?? '');
-  if (t.includes('trưởng phòng')) return 'HEAD';
-  if (t.includes('phó phòng') || t.includes('phó trưởng phòng')) return 'DEPUTY';
+  // Kiểm tra "phó" trước: "Phó trưởng phòng" cũng chứa chữ "trưởng phòng"
+  if (/(^|\s)phó(\s|$)/.test(t) && (t.includes('phòng') || t.includes('ban'))) return 'DEPUTY';
+  if (t.includes('trưởng phòng') || t.includes('trưởng ban')) return 'HEAD';
   return 'STAFF';
 }
 
@@ -181,12 +182,22 @@ export async function importWorkbook(buffer: Buffer | ArrayBuffer, actorId: numb
   async function linkManagers() {
     const users = await prisma.user.findMany({ where: { status: 'ACTIVE' } });
     const head = users.find((u) => u.role === 'HEAD');
+    const byId = new Map(users.map((u) => [u.id, u]));
     for (const u of users) {
-      if (u.managerId || u.role === 'HEAD' || u.role === 'ADMIN') continue;
+      if (u.role === 'HEAD' || u.role === 'ADMIN') continue;
+      const cur = u.managerId ? byId.get(u.managerId) : undefined;
+      const sameTeamDeputy = users.find((d) => d.role === 'DEPUTY' && d.id !== u.id && d.team && d.team === u.team);
       let managerId: number | undefined;
-      if (u.role === 'DEPUTY') managerId = head?.id;
-      else managerId = users.find((d) => d.role === 'DEPUTY' && d.team && d.team === u.team)?.id ?? head?.id;
-      if (managerId && managerId !== u.id) await prisma.user.update({ where: { id: u.id }, data: { managerId } });
+      if (u.role === 'DEPUTY') {
+        // Phó trưởng phòng báo cáo Trưởng phòng
+        if (!cur || cur.role !== 'HEAD') managerId = head?.id;
+      } else if (!cur || cur.role === 'STAFF' || (cur.role === 'HEAD' && sameTeamDeputy)) {
+        // Nhân viên → Phó trưởng phòng cùng bộ phận (sửa cả dữ liệu cũ bị gán thẳng cho Trưởng phòng)
+        managerId = sameTeamDeputy?.id ?? head?.id;
+      }
+      if (managerId && managerId !== u.id && managerId !== u.managerId) {
+        await prisma.user.update({ where: { id: u.id }, data: { managerId } });
+      }
     }
   }
   await linkManagers();

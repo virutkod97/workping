@@ -11,7 +11,7 @@ async function templateWorkbook() {
   dm.addRows([
     ['Nhóm công việc', 'Ưu tiên', 'Trạng thái mốc', null, 'Mã NS', 'Họ và tên', 'Chức danh', 'Bộ phận', 'Liên hệ', 'Trạng thái'],
     ['CNTT', 'Cao', 'Chưa thực hiện', null, 'NS001', 'Lê Danh Xuân', 'Trưởng phòng', 'CNTT&CĐS', null, 'Đang công tác'],
-    ['ATTT', 'Trung bình', 'Đang thực hiện', null, 'NS002', 'Nguyễn Khắc Hải', 'Phó phòng', 'ATTT', '0912345678', 'Đang công tác'],
+    ['ATTT', 'Trung bình', 'Đang thực hiện', null, 'NS002', 'Nguyễn Khắc Hải', 'Phó trưởng phòng', 'ATTT', '0912345678', 'Đang công tác'],
     [null, null, null, null, 'NS003', 'Nguyễn Văn E', 'Chuyên viên', 'ATTT', 'e@example.com', 'Đang công tác'],
   ]);
   dm.getCell('E10').value = 'CÁCH DÙNG';
@@ -64,6 +64,23 @@ describe('nhập/xuất Excel', () => {
     expect(r2.body.tasksCreated).toBe(0);
     expect(await prisma.milestone.count()).toBe(3);
     expect(await prisma.user.count()).toBe(5);
+  });
+
+  it('nhập lại sửa dữ liệu cũ: PTP bị nhầm thành Trưởng phòng, nhân viên gán sai nhóm', async () => {
+    const admin = await mkUser('ADMIN', 'ADMIN');
+    const file = await templateWorkbook();
+    await as(admin).post('/api/excel/import').attach('file', file, 'data.xlsx');
+    // Mô phỏng dữ liệu do bản cũ nhập sai
+    const head = await prisma.user.findUniqueOrThrow({ where: { code: 'NS001' } });
+    await prisma.user.update({ where: { code: 'NS002' }, data: { role: 'HEAD', managerId: null } });
+    await prisma.user.update({ where: { code: 'NS003' }, data: { managerId: head.id } });
+
+    await as(admin).post('/api/excel/import').attach('file', file, 'data.xlsx');
+    const hai = await prisma.user.findUniqueOrThrow({ where: { code: 'NS002' } });
+    const e = await prisma.user.findUniqueOrThrow({ where: { code: 'NS003' } });
+    expect(hai.role).toBe('DEPUTY');
+    expect(hai.managerId).toBe(head.id);
+    expect(e.managerId).toBe(hai.id);
   });
 
   it('xuất báo cáo Excel', async () => {

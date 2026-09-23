@@ -13,6 +13,7 @@ import { dashboardRouter } from './routes/dashboard';
 import { devicesRouter, notificationsRouter } from './routes/notifications';
 import { categoriesRouter } from './routes/categories';
 import { excelRouter } from './routes/excel';
+import { reportsRouter } from './routes/reports';
 import { runReminders } from './services/reminders';
 import { pushEnabled, sendPushToUser } from './services/push';
 import { me } from './lib/auth';
@@ -35,6 +36,7 @@ export function createApp() {
   api.use('/devices', devicesRouter);
   api.use('/categories', categoriesRouter);
   api.use('/excel', excelRouter);
+  api.use('/reports', reportsRouter);
   api.post('/admin/run-reminders', requireRole('ADMIN', 'HEAD'), async (_req, res) => void res.json(await runReminders()));
   /** Gửi thử push tới chính mình để kiểm tra cấu hình Firebase */
   api.post('/devices/test', async (req, res) => {
@@ -52,7 +54,7 @@ export function createApp() {
 
   app.use((_req, _res, next) => next(new HttpError(404, 'Không tìm thấy')));
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError) return void res.status(err.status).json({ error: err.message });
+    if (err instanceof HttpError) return void res.status(err.status).json({ error: err.message, ...err.data });
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
       return void res.status(404).json({ error: 'Không tìm thấy' });
     }

@@ -7,9 +7,9 @@ import { useAuth } from '../../lib/auth';
 import { daysLeftText, fmtDate, fmtDateTime } from '../../lib/format';
 import { colors } from '../../lib/theme';
 import type { Milestone, TaskDetail } from '../../lib/types';
-import { Button, Card, Empty, Input, Loading, MsStatusTag, PriorityTag, ProgressBar, StateTag, WarningTag, s } from '../../components/ui';
+import { Button, Card, Empty, Input, Loading, MsStatusTag, PriorityTag, ProgressBar, StateTag, Tag, WarningTag, s } from '../../components/ui';
 import { ProgressSheet } from '../../components/ProgressSheet';
-import { MilestoneSheet } from '../../components/MilestoneSheet';
+import { DelegateSheet, MilestoneSheet } from '../../components/MilestoneSheet';
 
 const ACT: Record<string, string> = { COMMENT: '💬', CREATE: '🆕', ASSIGN: '📌', STATUS: '✅', UPDATE: '✏️' };
 
@@ -18,6 +18,7 @@ export default function TaskDetailScreen() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [progress, setProgress] = useState<Milestone | null>(null);
+  const [delegate, setDelegate] = useState<Milestone | null>(null);
   const [msSheet, setMsSheet] = useState<{ open: boolean; m?: Milestone | null }>({ open: false });
   const [comment, setComment] = useState('');
   const { data: t, isFetching, refetch, error } = useQuery({ queryKey: ['task', id], queryFn: () => api.get<TaskDetail>(`/tasks/${id}`) });
@@ -53,7 +54,10 @@ export default function TaskDetailScreen() {
           <Text style={{ fontSize: 17, fontWeight: '700', marginTop: 8 }}>{t.title}</Text>
           <View style={{ marginTop: 10, gap: 4 }}>
             <Text style={s.muted}>Người giao: <Text style={{ color: colors.text }}>{t.assigner.fullName}</Text></Text>
-            <Text style={s.muted}>Phụ trách chung: <Text style={{ color: colors.text }}>{t.owner.fullName}</Text></Text>
+            <Text style={s.muted}>
+              Phụ trách chung: <Text style={{ color: colors.text }}>{t.owner.fullName}</Text>
+              {t.ownerOutOfGroup ? <Text style={{ color: colors.warning }}> · Ngoài nhóm</Text> : null}
+            </Text>
             <Text style={s.muted}>
               Thời gian: <Text style={{ color: colors.text }}>{fmtDate(t.startDate)} → {fmtDate(t.dueDate)}</Text>{' '}
               <Text style={{ color: t.state === 'OVERDUE' ? colors.danger : colors.warning, fontWeight: '600' }}>{daysLeftText(t.daysLeft, t.state === 'DONE')}</Text>
@@ -77,16 +81,21 @@ export default function TaskDetailScreen() {
                 <Text style={{ fontWeight: '700' }}>#{m.seq}</Text>
                 <WarningTag w={m.warning} />
                 <MsStatusTag s={m.status} />
+                {m.outOfGroup && <Tag label="Ngoài nhóm" tone="warning" />}
               </View>
               <Text style={{ marginTop: 6, fontSize: 15 }}>{m.content}</Text>
               <Text style={[s.muted, { marginTop: 4 }]}>
-                👤 {m.assignee?.fullName ?? 'Chưa giao'} · Hạn {fmtDate(m.dueDate)} {daysLeftText(m.daysLeft, m.status === 'DONE') ? `· ${daysLeftText(m.daysLeft)}` : ''} · Trọng số {m.weight}
+                👤 {m.assignee?.fullName ?? 'Chưa giao'}
+                {m.assignedBy && m.assignedBy.id !== t.assigner.id ? ` (giao bởi ${m.assignedBy.fullName})` : ''} · Hạn {fmtDate(m.dueDate)} {daysLeftText(m.daysLeft, m.status === 'DONE') ? `· ${daysLeftText(m.daysLeft)}` : ''} · Trọng số {m.weight}
               </Text>
               {m.note && <Text style={[s.muted, { marginTop: 4 }]}>📝 {m.note}</Text>}
               <View style={{ marginTop: 8 }}>
                 <ProgressBar value={m.percent} danger={m.warning === 'OVERDUE'} />
               </View>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                {user?.role !== 'STAFF' && m.status !== 'DONE' && (mine || canManage) && (
+                  <Button title="Giao tiếp" small variant="default" onPress={() => setDelegate(m)} />
+                )}
                 {canManage && (
                   <Button
                     title="Xoá"
@@ -126,6 +135,7 @@ export default function TaskDetailScreen() {
         </Pressable>
       </View>
       <ProgressSheet milestone={progress} onClose={() => setProgress(null)} />
+      <DelegateSheet milestone={delegate} onClose={() => setDelegate(null)} />
       <MilestoneSheet open={msSheet.open} milestone={msSheet.m} taskId={t.id} onClose={() => setMsSheet({ open: false })} />
     </KeyboardAvoidingView>
   );

@@ -72,13 +72,10 @@ describe('giao việc 3 cấp', () => {
     expect(t.body.activities.some((a: { type: string }) => a.type === 'STATUS')).toBe(true);
   });
 
-  it('Phó phòng không được giao việc cho nhân viên của phó phòng khác', async () => {
-    const { head, depA, staffB } = await org();
+  it('Phó trưởng phòng không giao được cho Phó trưởng phòng khác', async () => {
+    const { head, depA, depB } = await org();
     const t = await as(head).post('/api/tasks', { title: 'X', ownerId: depA.id });
-    const r = await as(depA).post(`/api/tasks/${t.body.id}/milestones`, { content: 'Y', assigneeId: staffB.id });
-    expect(r.status).toBe(403);
-    const r2 = await as(depA).post('/api/tasks', { title: 'Z', ownerId: staffB.id });
-    expect(r2.status).toBe(403);
+    expect((await as(depA).post(`/api/tasks/${t.body.id}/milestones`, { content: 'Y', assigneeId: depB.id, confirmOutOfGroup: true })).status).toBe(403);
   });
 
   it('Nhân viên chỉ tự tạo việc cho bản thân, không sửa được việc cấp trên giao', async () => {
@@ -119,7 +116,10 @@ describe('giao việc 3 cấp', () => {
   it('danh sách người được giao theo cấp', async () => {
     const { head, depA, staffA } = await org();
     expect((await as(head).get('/api/users/assignable')).body).toHaveLength(5);
-    expect((await as(depA).get('/api/users/assignable')).body.map((u: { code: string }) => u.code).sort()).toEqual(['NS002', 'NS004']);
+    const dep = (await as(depA).get('/api/users/assignable')).body as { code: string; inGroup: boolean; groupLead: string | null }[];
+    // bản thân + nhân viên nhóm mình (trong nhóm) + nhân viên nhóm khác (ngoài nhóm)
+    expect(dep.map((u) => `${u.code}:${u.inGroup}`)).toEqual(['NS002:true', 'NS004:true', 'NS005:false']);
+    expect(dep[2].groupLead).toBe('User NS003');
     expect((await as(staffA).get('/api/users/assignable')).body).toHaveLength(1);
   });
 
@@ -198,5 +198,98 @@ describe('bảo vệ tài khoản quản trị', () => {
     expect((await as(head).post(`/api/users/${admin.id}/reset-password`)).status).toBe(403);
     expect((await as(head).delete(`/api/users/${admin.id}`)).status).toBe(403);
     expect((await as(head).put(`/api/users/${admin.id}`, { fullName: 'Hack' })).status).toBe(403);
+  });
+});
+
+describe('nhóm của Phó trưởng phòng & giao ngoài nhóm', () => {
+  it('giao ngoài nhóm: cảnh báo 409, xác nhận thì giao được, ghi nhật ký & báo cho PTP nhóm kia', async () => {
+    const { head, depA, depB, staffA, staffB } = await org();
+    const t = await as(head).post('/api/tasks', { title: 'Việc nhóm A', ownerId: depA.id });
+
+    // Trong nhóm: không cảnh báo
+    const ok = await as(depA).post(`/api/tasks/${t.body.id}/milestones`, { content: 'Trong nhóm', assigneeId: staffA.id });
+    expect(ok.status).toBe(201);
+    expect(ok.body.outOfGroup).toBe(false);
+
+    // Ngoài nhóm, chưa xác nhận → 409 kèm danh sách
+    const warn = await as(depA).post(`/api/tasks/${t.body.id}/milestones`, { content: 'Ngoài nhóm', assigneeId: staffB.id });
+    expect(warn.status).toBe(409);
+    expect(warn.body.code).toBe('OUT_OF_GROUP');
+    expect(warn.body.people).toEqual([{ id: staffB.id, fullName: 'User NS005', groupLead: 'User NS003' }]);
+    expect(await prisma.milestone.count({ where: { content: 'Ngoài nhóm' } })).toBe(0);
+
+    // Xác nhận → giao được
+    const done = await as(depA).post(`/api/tasks/${t.body.id}/milestones`, {
+      content: 'Ngoài nhóm',
+      assigneeId: staffB.id,
+      confirmOutOfGroup: true,
+      outOfGroupReason: 'Nhóm A thiếu người',
+    });
+    expect(done.status).toBe(201);
+    expect(done.body.outOfGroup).toBe(true);
+
+    const logs = await prisma.crossGroupAssignment.findMany();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({
+      kind: 'MILESTONE',
+      assignerId: depA.id,
+      assigneeId: staffB.id,
+      assigneeLeadId: depB.id,
+      taskCode: 'CV001',
+      milestoneContent: 'Ngoài nhóm',
+      reason: 'Nhóm A thiếu người',
+    });
+    expect((await inbox(depB.id)).some((n) => n.title.includes('ngoài nhóm'))).toBe(true);
+    expect((await inbox(staffB.id)).some((n) => n.type === 'ASSIGNED')).toBe(true);
+
+    // Báo cáo: TP thấy tất cả, PTP nhóm kia thấy, nhân viên nhóm A không thấy
+    expect((await as(head).get('/api/reports/cross-group')).body.rows).toHaveLength(1);
+    expect((await as(head).get('/api/reports/cross-group')).body.summary[0]).toMatchObject({ count: 1, people: 1 });
+    expect((await as(depB).get('/api/reports/cross-group')).body.rows).toHaveLength(1);
+    expect((await as(staffA).get('/api/reports/cross-group')).body.rows).toHaveLength(0);
+    const xl = await as(head).get('/api/excel/export');
+    expect(xl.status).toBe(200);
+    expect((await as(head).get('/api/reports/cross-group/export')).status).toBe(200);
+  });
+
+  it('Trưởng phòng giao cho bất kỳ ai không bị cảnh báo', async () => {
+    const { head, staffB } = await org();
+    const r = await as(head).post('/api/tasks', { title: 'X', ownerId: staffB.id });
+    expect(r.status).toBe(201);
+    expect(r.body.ownerOutOfGroup).toBe(false);
+    expect(await prisma.crossGroupAssignment.count()).toBe(0);
+  });
+
+  it('PTP tạo việc giao người phụ trách ngoài nhóm cũng phải xác nhận & được ghi nhận', async () => {
+    const { depA, staffB } = await org();
+    expect((await as(depA).post('/api/tasks', { title: 'Y', ownerId: staffB.id })).status).toBe(409);
+    const r = await as(depA).post('/api/tasks', { title: 'Y', ownerId: staffB.id, confirmOutOfGroup: true });
+    expect(r.status).toBe(201);
+    expect(r.body.ownerOutOfGroup).toBe(true);
+    expect(await prisma.crossGroupAssignment.count({ where: { kind: 'TASK_OWNER' } })).toBe(1);
+    // PTP vẫn theo dõi được việc mình giao ra ngoài
+    expect((await as(depA).get(`/api/tasks/${r.body.id}`)).status).toBe(200);
+  });
+
+  it('giao tiếp: TP giao mốc cho PTP, PTP chuyển xuống nhân viên; nhân viên không giao tiếp được', async () => {
+    const { head, depA, staffA, staffB } = await org();
+    const t = await as(head).post('/api/tasks', {
+      title: 'Báo cáo NPC',
+      ownerId: head.id,
+      milestones: [{ content: 'Soạn báo cáo', assigneeId: depA.id }],
+    });
+    const mid = t.body.milestones[0].id;
+    // PTP không quản lý công việc (TP là người phụ trách) nhưng vẫn giao tiếp được mốc của mình
+    const d = await as(depA).post(`/api/milestones/${mid}/delegate`, { assigneeId: staffA.id, note: 'Làm trước thứ 6' });
+    expect(d.status).toBe(200);
+    expect(d.body.assignee.id).toBe(staffA.id);
+    expect(d.body.assignedBy.id).toBe(depA.id);
+    expect((await inbox(staffA.id)).some((n) => n.milestoneId === mid)).toBe(true);
+    // PTP vẫn xem được công việc sau khi giao tiếp
+    expect((await as(depA).get(`/api/tasks/${t.body.id}`)).status).toBe(200);
+    // Nhân viên không giao tiếp tiếp được
+    expect((await as(staffA).post(`/api/milestones/${mid}/delegate`, { assigneeId: staffB.id })).status).toBe(403);
+    const detail = await as(head).get(`/api/tasks/${t.body.id}`);
+    expect(detail.body.activities.some((a: { content: string }) => a.content.startsWith('Giao tiếp mốc 1'))).toBe(true);
   });
 });

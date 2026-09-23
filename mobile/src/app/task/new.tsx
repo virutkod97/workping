@@ -7,7 +7,7 @@ import { useAuth } from '../../lib/auth';
 import { useAssignable, useCategories } from '../../lib/hooks';
 import { colors } from '../../lib/theme';
 import type { Priority, Task } from '../../lib/types';
-import { ROLE_LABEL } from '../../lib/types';
+import { isCancelled, OutOfGroupHint, personOptions, useOutOfGroupGuard } from '../../components/OutOfGroup';
 import { Button, Chips, Field, Input, s } from '../../components/ui';
 import { DateField, SelectField } from '../../components/pickers';
 
@@ -30,25 +30,29 @@ export default function NewTask() {
   const [dueDate, setDue] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [ms, setMs] = useState<MsDraft[]>([]);
+  const [guard, guardModal] = useOutOfGroupGuard();
 
-  const peopleOpts = people.map((u) => ({ value: u.id, label: u.fullName, sub: `${ROLE_LABEL[u.role]}${u.team ? ` · ${u.team}` : ''}` }));
+  const peopleOpts = personOptions(people);
 
   const save = useMutation({
     mutationFn: () =>
-      api.post<Task>('/tasks', {
-        title,
-        ownerId,
-        priority,
-        groupName,
-        dueDate,
-        note: note || null,
-        milestones: ms.filter((m) => m.content.trim()).map((m) => ({ ...m, weight: 1 })),
-      }),
+      guard((extra) =>
+        api.post<Task>('/tasks', {
+          title,
+          ownerId,
+          priority,
+          groupName,
+          dueDate,
+          note: note || null,
+          milestones: ms.filter((m) => m.content.trim()).map((m) => ({ ...m, weight: 1 })),
+          ...extra,
+        }),
+      ),
     onSuccess: (t) => {
       qc.invalidateQueries();
       router.replace(`/task/${t.id}`);
     },
-    onError: (e: Error) => Alert.alert('Lỗi', e.message),
+    onError: (e: Error) => !isCancelled(e) && Alert.alert('Lỗi', e.message),
   });
 
   const upd = (i: number, patch: Partial<MsDraft>) => setMs((arr) => arr.map((m, j) => (j === i ? { ...m, ...patch } : m)));
@@ -61,6 +65,7 @@ export default function NewTask() {
         </Field>
         <Field label="Người phụ trách chung *">
           <SelectField title="Người phụ trách chung" value={ownerId} onChange={setOwner} options={peopleOpts} />
+          <OutOfGroupHint people={people} id={ownerId} />
         </Field>
         <Field label="Ưu tiên">
           <Chips value={priority} onChange={setPriority} options={[{ value: 'HIGH', label: 'Cao' }, { value: 'MEDIUM', label: 'Trung bình' }, { value: 'LOW', label: 'Thấp' }]} />
@@ -93,6 +98,7 @@ export default function NewTask() {
             </View>
             <Input value={m.content} onChangeText={(v) => upd(i, { content: v })} placeholder="Nội dung mốc" style={{ marginBottom: 8 }} />
             <SelectField title="Người thực hiện" allowClear value={m.assigneeId} onChange={(v) => upd(i, { assigneeId: v })} placeholder="Người thực hiện" options={peopleOpts} />
+            <OutOfGroupHint people={people} id={m.assigneeId} />
             <View style={{ height: 8 }} />
             <DateField value={m.dueDate} onChange={(v) => upd(i, { dueDate: v })} placeholder="Hạn mốc" />
           </View>
@@ -100,6 +106,7 @@ export default function NewTask() {
         <Button title="＋ Thêm mốc" variant="default" onPress={() => setMs((a) => [...a, { content: '', assigneeId: null, dueDate: dueDate }])} style={{ marginBottom: 20 }} />
         <Button title="Giao việc" onPress={() => save.mutate()} loading={save.isPending} disabled={!title.trim() || !ownerId} />
       </ScrollView>
+      {guardModal}
     </KeyboardAvoidingView>
   );
 }

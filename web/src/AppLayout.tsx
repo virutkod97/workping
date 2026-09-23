@@ -6,6 +6,7 @@ import {
   LogoutOutlined,
   MenuOutlined,
   ProfileOutlined,
+  SwapOutlined,
   SettingOutlined,
   TeamOutlined,
   UserOutlined,
@@ -18,7 +19,7 @@ import { useAuth } from './auth';
 import { ROLE_LABEL } from './types';
 
 export default function AppLayout() {
-  const { user, logout, isManager, refresh } = useAuth();
+  const { user, logout, isManager, canAssign, refresh } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
   const screens = Grid.useBreakpoint();
@@ -35,6 +36,7 @@ export default function AppLayout() {
     { key: '/my-work', icon: <CheckSquareOutlined />, label: 'Việc của tôi' },
     { key: '/tasks', icon: <ProfileOutlined />, label: 'Công việc' },
     { key: '/staff', icon: <TeamOutlined />, label: 'Nhân sự' },
+    ...(canAssign ? [{ key: '/reports/cross-group', icon: <SwapOutlined />, label: 'Giao ngoài nhóm' }] : []),
     { key: '/notifications', icon: <BellOutlined />, label: <span>Thông báo {!!unread?.count && <Badge count={unread.count} size="small" style={{ marginLeft: 6 }} />}</span> },
     ...(isManager ? [{ key: '/settings', icon: <SettingOutlined />, label: 'Cấu hình & Excel' }] : []),
   ];

@@ -34,9 +34,11 @@ export const setUnauthorizedHandler = (fn: () => void) => {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  data: Record<string, unknown>;
+  constructor(status: number, message: string, data: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -51,14 +53,14 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(0, 'Không kết nối được máy chủ. Kiểm tra mạng hoặc địa chỉ máy chủ.');
   }
   if (!res.ok) {
-    let msg = `Lỗi ${res.status}`;
+    let data: Record<string, unknown> = {};
     try {
-      msg = (await res.json()).error || msg;
+      data = await res.json();
     } catch {
       /* không phải JSON */
     }
     if (res.status === 401 && token) onUnauthorized?.();
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, (data.error as string) || `Lỗi ${res.status}`, data);
   }
   return (await res.json()) as T;
 }

@@ -10,9 +10,10 @@ import MyWork from './pages/MyWork';
 import Staff from './pages/Staff';
 import Settings from './pages/Settings';
 import Notifications from './pages/Notifications';
+import CrossGroupReport from './pages/CrossGroupReport';
 
 export default function App() {
-  const { user, loading, isManager } = useAuth();
+  const { user, loading, isManager, canAssign } = useAuth();
   if (loading) return <Spin fullscreen />;
   if (!user) {
     return (
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="staff" element={<Staff />} />
         <Route path="notifications" element={<Notifications />} />
         {isManager && <Route path="settings" element={<Settings />} />}
+        {canAssign && <Route path="reports/cross-group" element={<CrossGroupReport />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

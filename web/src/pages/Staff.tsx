@@ -55,7 +55,7 @@ export default function Staff() {
       <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>Nhân sự</Typography.Title>
         <Space wrap>
-          <Segmented value={view} onChange={(v) => setView(v as typeof view)} options={[{ value: 'list', label: 'Danh sách' }, { value: 'tree', label: 'Sơ đồ phân cấp' }]} />
+          <Segmented value={view} onChange={(v) => setView(v as typeof view)} options={[{ value: 'list', label: 'Danh sách' }, { value: 'tree', label: 'Sơ đồ nhóm' }]} />
           <Segmented value={status} onChange={(v) => setStatus(v as typeof status)} options={[{ value: 'ACTIVE', label: 'Đang công tác' }, { value: 'ALL', label: 'Tất cả' }]} />
           {isManager && <Button type="primary" icon={<PlusOutlined />} onClick={() => setEdit({ open: true })}>Thêm nhân sự</Button>}
         </Space>
@@ -77,7 +77,7 @@ export default function Staff() {
               { title: 'Chức danh', dataIndex: 'title', width: 120 },
               { title: 'Cấp', dataIndex: 'role', width: 120, render: (r: Role) => <Tag color={ROLE_COLOR[r]}>{ROLE_LABEL[r]}</Tag> },
               { title: 'Bộ phận', dataIndex: 'team', width: 120 },
-              { title: 'Quản lý trực tiếp', dataIndex: ['manager', 'fullName'], width: 160 },
+              { title: 'Nhóm / quản lý trực tiếp', dataIndex: ['manager', 'fullName'], width: 170 },
               { title: 'Điện thoại', dataIndex: 'phone', width: 110 },
               { title: 'Email', dataIndex: 'email', width: 180, ellipsis: true },
               ...(isManager ? [{ title: 'Tài khoản', dataIndex: 'username', width: 100 }] : []),
@@ -170,7 +170,12 @@ function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: U
           <Form.Item name="team" label="Bộ phận" style={{ flex: 1, minWidth: 160 }}>
             <Select allowClear options={cats.filter((c) => c.type === 'TEAM').map((c) => ({ value: c.name, label: c.name }))} />
           </Form.Item>
-          <Form.Item name="managerId" label="Quản lý trực tiếp" style={{ flex: 1, minWidth: 200 }}>
+          <Form.Item
+            name="managerId"
+            label="Nhóm / quản lý trực tiếp"
+            tooltip="Nhân viên thuộc nhóm của Phó trưởng phòng được chọn. Phó trưởng phòng giao việc cho người ngoài nhóm sẽ bị cảnh báo và ghi nhận."
+            style={{ flex: 1, minWidth: 200 }}
+          >
             <Select allowClear disabled={role === 'HEAD' || role === 'ADMIN'} options={managers.map((u) => ({ value: u.id, label: `${u.fullName} (${ROLE_LABEL[u.role]})` }))} />
           </Form.Item>
         </div>

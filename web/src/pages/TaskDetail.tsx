@@ -10,7 +10,8 @@ import { fmtDate } from '../hooks';
 import type { Milestone, TaskDetail as TD } from '../types';
 import { DaysLeft, MilestoneStatusTag, PriorityTag, ProgressBar, StateTag, WarningTag } from '../components/Tags';
 import { TaskFormModal } from '../components/TaskFormModal';
-import { MilestoneFormModal, ProgressModal } from '../components/MilestoneModals';
+import { DelegateModal, MilestoneFormModal, ProgressModal } from '../components/MilestoneModals';
+import { OutOfGroupTag } from '../components/UserSelect';
 
 const ACT_COLOR: Record<string, string> = { COMMENT: 'blue', CREATE: 'green', ASSIGN: 'purple', STATUS: 'orange', UPDATE: 'default' };
 const ACT_LABEL: Record<string, string> = { COMMENT: 'Bình luận', CREATE: 'Tạo', ASSIGN: 'Giao việc', STATUS: 'Trạng thái', UPDATE: 'Cập nhật' };
@@ -24,6 +25,7 @@ export default function TaskDetail() {
   const [editTask, setEditTask] = useState(false);
   const [msForm, setMsForm] = useState<{ open: boolean; m?: Milestone | null }>({ open: false });
   const [progress, setProgress] = useState<Milestone | null>(null);
+  const [delegate, setDelegate] = useState<Milestone | null>(null);
   const [comment, setComment] = useState('');
 
   const { data: t, isLoading, error } = useQuery({ queryKey: ['task', id], queryFn: () => api.get<TD>(`/tasks/${id}`) });
@@ -82,7 +84,9 @@ export default function TaskDetail() {
       >
         <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }}>
           <Descriptions.Item label="Người giao">{t.assigner.fullName}</Descriptions.Item>
-          <Descriptions.Item label="Phụ trách chung">{t.owner.fullName}</Descriptions.Item>
+          <Descriptions.Item label="Phụ trách chung">
+            {t.owner.fullName} {t.ownerOutOfGroup && <OutOfGroupTag />}
+          </Descriptions.Item>
           <Descriptions.Item label="Nhóm">{t.groupName}</Descriptions.Item>
           <Descriptions.Item label="Đơn vị">{t.unit}</Descriptions.Item>
           <Descriptions.Item label="Bắt đầu">{fmtDate(t.startDate)}</Descriptions.Item>
@@ -126,7 +130,22 @@ export default function TaskDetail() {
                 </>
               ),
             },
-            { title: 'Người thực hiện', width: 150, render: (_, m) => m.assignee?.fullName ?? <i style={{ color: '#999' }}>Chưa giao</i> },
+            {
+              title: 'Người thực hiện',
+              width: 170,
+              render: (_, m) =>
+                m.assignee ? (
+                  <>
+                    <div>{m.assignee.fullName}</div>
+                    {m.assignedBy && m.assignedBy.id !== t.assigner.id && (
+                      <div style={{ fontSize: 12, color: '#888' }}>giao bởi {m.assignedBy.fullName}</div>
+                    )}
+                    {m.outOfGroup && <OutOfGroupTag />}
+                  </>
+                ) : (
+                  <i style={{ color: '#999' }}>Chưa giao</i>
+                ),
+            },
             { title: 'Trọng số', dataIndex: 'weight', width: 75, align: 'right' },
             { title: 'Hạn', dataIndex: 'dueDate', width: 95, render: fmtDate },
             { title: 'Trạng thái', dataIndex: 'status', width: 125, render: (s) => <MilestoneStatusTag s={s} /> },
@@ -134,10 +153,15 @@ export default function TaskDetail() {
             { title: 'Cảnh báo', dataIndex: 'warning', width: 125, render: (w, m) => (<><WarningTag warning={w} />{m.warning !== 'DONE' && <DaysLeft days={m.daysLeft} />}</>) },
             {
               title: '',
-              width: 170,
+              width: 250,
               fixed: 'right',
               render: (_, m) => (
-                <Space size={4}>
+                <Space size={4} wrap>
+                  {user?.role !== 'STAFF' && m.status !== 'DONE' && (m.assignee?.id === user?.id || canManage) && (
+                    <Button size="small" onClick={() => setDelegate(m)}>
+                      Giao tiếp
+                    </Button>
+                  )}
                   {(canManage || m.assignee?.id === user?.id) && (
                     <Button size="small" type={m.assignee?.id === user?.id ? 'primary' : 'default'} onClick={() => setProgress(m)}>
                       Cập nhật
@@ -195,6 +219,7 @@ export default function TaskDetail() {
       <TaskFormModal open={editTask} task={t} onClose={() => setEditTask(false)} />
       <MilestoneFormModal open={msForm.open} milestone={msForm.m} taskId={t.id} onClose={() => setMsForm({ open: false })} />
       <ProgressModal open={!!progress} milestone={progress} onClose={() => setProgress(null)} />
+      <DelegateModal milestone={delegate} onClose={() => setDelegate(null)} />
     </>
   );
 }

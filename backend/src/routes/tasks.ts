@@ -18,6 +18,7 @@ import { MILESTONE_STATUS_LABEL, taskProgress } from '../lib/status';
 import { serializeMilestone, serializeTask, taskInclude, userBrief } from '../services/serialize';
 import { nextTaskCode } from '../services/codes';
 import { notify, notifyMany } from '../services/notify';
+import { checkOutOfGroup, recordCrossGroup } from '../services/crossGroup';
 
 export const tasksRouter = Router();
 export const milestonesRouter = Router();
@@ -48,6 +49,12 @@ const taskBody = z.object({
   milestones: z.array(milestoneBody).optional(),
 });
 
+/** Xác nhận giao việc ra ngoài nhóm (Phó trưởng phòng) */
+const crossGroupBody = z.object({
+  confirmOutOfGroup: z.boolean().optional(),
+  outOfGroupReason: z.string().trim().max(1000).nullable().optional(),
+});
+
 const progressBody = z.object({
   status: milestoneStatus.optional(),
   percent: z.number().int().min(0).max(100).optional(),
@@ -64,7 +71,7 @@ async function loadTask(id: number) {
 async function ensureAssignable(u: AuthUser, userId: number | null | undefined) {
   if (!userId) return;
   if (!(await canAssignTo(u, userId))) {
-    throw forbidden('Bạn không được giao việc cho người này (chỉ giao cho bản thân hoặc cấp dưới)');
+    throw forbidden('Bạn không được giao việc cho người này');
   }
 }
 
@@ -146,10 +153,11 @@ tasksRouter.get('/', async (req, res) => {
 
 tasksRouter.post('/', async (req, res) => {
   const u = me(req);
-  const body = parse(taskBody, req.body);
+  const body = parse(taskBody.merge(crossGroupBody), req.body);
   const ownerId = body.ownerId ?? u.id;
   await ensureAssignable(u, ownerId);
   for (const m of body.milestones ?? []) await ensureAssignable(u, m.assigneeId);
+  const out = await checkOutOfGroup(u, [ownerId, ...(body.milestones ?? []).map((m) => m.assigneeId)], body.confirmOutOfGroup);
   const code = body.code || (await nextTaskCode());
   if (await prisma.task.findUnique({ where: { code } })) throw badRequest(`Mã công việc ${code} đã tồn tại`);
 
@@ -170,6 +178,7 @@ tasksRouter.post('/', async (req, res) => {
       note: body.note || null,
       assignerId: u.id,
       ownerId,
+      ownerOutOfGroup: out.has(ownerId),
       milestones: {
         create: milestones.map((m, i) => ({
           seq: 'seq' in m && m.seq ? m.seq : i + 1,
@@ -178,6 +187,7 @@ tasksRouter.post('/', async (req, res) => {
           dueDate: toDbDate(m.dueDate),
           assigneeId: m.assigneeId ?? null,
           assignedById: m.assigneeId ? u.id : null,
+          outOfGroup: !!m.assigneeId && out.has(m.assigneeId),
           unit: m.unit || null,
           note: 'note' in m ? (m.note ?? null) : null,
         })),
@@ -185,7 +195,14 @@ tasksRouter.post('/', async (req, res) => {
     },
     include: taskInclude,
   });
-  await log(task.id, u.id, 'CREATE', `Tạo công việc, giao cho ${task.owner.fullName}`);
+  await log(task.id, u.id, 'CREATE', `Tạo công việc, giao cho ${task.owner.fullName}${task.ownerOutOfGroup ? ' (ngoài nhóm)' : ''}`);
+  const reason = body.outOfGroupReason;
+  if (task.ownerOutOfGroup) await recordCrossGroup(u, { kind: 'TASK_OWNER', task, assigneeId: ownerId, reason });
+  if (body.milestones?.length) {
+    for (const m of task.milestones) {
+      if (m.outOfGroup && m.assigneeId) await recordCrossGroup(u, { kind: 'MILESTONE', task, milestone: m, assigneeId: m.assigneeId, reason });
+    }
+  }
 
   const due = fmtDue(body.dueDate);
   if (ownerId !== u.id) {
@@ -238,8 +255,10 @@ tasksRouter.put('/:id', async (req, res) => {
   const id = parse(idParam, req.params.id);
   const task = await loadTask(id);
   if (!(await canManageTask(u, task))) throw forbidden();
-  const body = parse(taskBody.omit({ milestones: true }).partial(), req.body);
-  if (body.ownerId && body.ownerId !== task.ownerId) await ensureAssignable(u, body.ownerId);
+  const body = parse(taskBody.omit({ milestones: true }).partial().merge(crossGroupBody), req.body);
+  const ownerChanged = !!body.ownerId && body.ownerId !== task.ownerId;
+  if (ownerChanged) await ensureAssignable(u, body.ownerId);
+  const out = ownerChanged ? await checkOutOfGroup(u, [body.ownerId], body.confirmOutOfGroup) : new Set<number>();
   if (body.code && body.code !== task.code && (await prisma.task.findUnique({ where: { code: body.code } }))) {
     throw badRequest(`Mã công việc ${body.code} đã tồn tại`);
   }
@@ -255,13 +274,17 @@ tasksRouter.put('/:id', async (req, res) => {
       dueDate: body.dueDate !== undefined ? toDbDate(body.dueDate) : undefined,
       note: body.note,
       ownerId: body.ownerId,
+      ...(ownerChanged ? { ownerOutOfGroup: out.has(body.ownerId!) } : {}),
     },
     include: taskInclude,
   });
 
   const changes: string[] = [];
   if (body.ownerId && body.ownerId !== task.ownerId) {
-    changes.push(`Chuyển người phụ trách: ${task.owner.fullName} → ${updated.owner.fullName}`);
+    changes.push(`Chuyển người phụ trách: ${task.owner.fullName} → ${updated.owner.fullName}${updated.ownerOutOfGroup ? ' (ngoài nhóm)' : ''}`);
+    if (updated.ownerOutOfGroup) {
+      await recordCrossGroup(u, { kind: 'TASK_OWNER', task: updated, assigneeId: body.ownerId!, reason: body.outOfGroupReason });
+    }
     await notify({
       userId: body.ownerId,
       type: 'ASSIGNED',
@@ -326,8 +349,9 @@ tasksRouter.post('/:id/milestones', async (req, res) => {
   const id = parse(idParam, req.params.id);
   const task = await loadTask(id);
   if (!(await canManageTask(u, task))) throw forbidden();
-  const body = parse(milestoneBody, req.body);
+  const body = parse(milestoneBody.merge(crossGroupBody), req.body);
   await ensureAssignable(u, body.assigneeId);
+  const out = await checkOutOfGroup(u, [body.assigneeId], body.confirmOutOfGroup);
   const seq = body.seq ?? Math.max(0, ...task.milestones.map((m) => m.seq)) + 1;
   const m = await prisma.milestone.create({
     data: {
@@ -338,12 +362,16 @@ tasksRouter.post('/:id/milestones', async (req, res) => {
       dueDate: toDbDate(body.dueDate),
       assigneeId: body.assigneeId ?? null,
       assignedById: body.assigneeId ? u.id : null,
+      outOfGroup: !!body.assigneeId && out.has(body.assigneeId),
       unit: body.unit || null,
       note: body.note || null,
     },
     include: { assignee: userBrief, assignedBy: userBrief },
   });
-  await log(id, u.id, 'ASSIGN', `Thêm mốc ${seq}: ${m.content}${m.assignee ? ` → ${m.assignee.fullName}` : ''}`, m.id);
+  await log(id, u.id, 'ASSIGN', `Thêm mốc ${seq}: ${m.content}${m.assignee ? ` → ${m.assignee.fullName}` : ''}${m.outOfGroup ? ' (ngoài nhóm)' : ''}`, m.id);
+  if (m.outOfGroup && m.assigneeId) {
+    await recordCrossGroup(u, { kind: 'MILESTONE', task, milestone: m, assigneeId: m.assigneeId, reason: body.outOfGroupReason });
+  }
   if (m.assigneeId && m.assigneeId !== u.id) {
     await notify({
       userId: m.assigneeId,
@@ -402,10 +430,11 @@ milestonesRouter.put('/:id', async (req, res) => {
   const id = parse(idParam, req.params.id);
   const m = await loadMilestone(id);
   if (!(await canManageTask(u, m.task))) throw forbidden();
-  const body = parse(milestoneBody.partial().merge(progressBody), req.body);
-  if (body.assigneeId !== undefined && body.assigneeId !== m.assigneeId) await ensureAssignable(u, body.assigneeId);
-  const prog = normalizeProgress(m, body);
+  const body = parse(milestoneBody.partial().merge(progressBody).merge(crossGroupBody), req.body);
   const reassigned = body.assigneeId !== undefined && body.assigneeId !== m.assigneeId;
+  if (reassigned) await ensureAssignable(u, body.assigneeId);
+  const out = reassigned ? await checkOutOfGroup(u, [body.assigneeId], body.confirmOutOfGroup) : new Set<number>();
+  const prog = normalizeProgress(m, body);
   await prisma.milestone.update({
     where: { id },
     data: {
@@ -415,14 +444,19 @@ milestonesRouter.put('/:id', async (req, res) => {
       dueDate: body.dueDate !== undefined ? toDbDate(body.dueDate) : undefined,
       unit: body.unit,
       note: body.note,
-      ...(reassigned ? { assigneeId: body.assigneeId, assignedById: body.assigneeId ? u.id : null } : {}),
+      ...(reassigned
+        ? { assigneeId: body.assigneeId, assignedById: body.assigneeId ? u.id : null, outOfGroup: !!body.assigneeId && out.has(body.assigneeId) }
+        : {}),
       ...prog,
     },
   });
   const task = await afterProgressChange(u, m, id, m.taskId);
   const updated = task.milestones.find((x) => x.id === id)!;
   if (reassigned && updated.assigneeId) {
-    await log(m.taskId, u.id, 'ASSIGN', `Giao mốc ${updated.seq} cho ${updated.assignee?.fullName}`, id);
+    await log(m.taskId, u.id, 'ASSIGN', `Giao mốc ${updated.seq} cho ${updated.assignee?.fullName}${updated.outOfGroup ? ' (ngoài nhóm)' : ''}`, id);
+    if (updated.outOfGroup) {
+      await recordCrossGroup(u, { kind: 'MILESTONE', task, milestone: updated, assigneeId: updated.assigneeId, reason: body.outOfGroupReason });
+    }
     if (updated.assigneeId !== u.id) {
       await notify({
         userId: updated.assigneeId,
@@ -445,6 +479,56 @@ milestonesRouter.put('/:id', async (req, res) => {
       taskId: task.id,
       milestoneId: id,
     });
+  }
+  res.json(serializeMilestone(updated));
+});
+
+/**
+ * Giao tiếp: người đang được giao mốc (vd Phó trưởng phòng) chuyển mốc xuống nhân viên.
+ * Không cần quyền quản lý cả công việc — chỉ cần đang là người thực hiện mốc.
+ */
+milestonesRouter.post('/:id/delegate', async (req, res) => {
+  const u = me(req);
+  const id = parse(idParam, req.params.id);
+  const body = parse(
+    z.object({ assigneeId: z.number().int().positive(), dueDate: dateField, note: z.string().nullable().optional() }).merge(crossGroupBody),
+    req.body,
+  );
+  const m = await loadMilestone(id);
+  if (u.role === 'STAFF') throw forbidden('Nhân viên không giao tiếp việc cho người khác');
+  if (m.assigneeId !== u.id && !(await canManageTask(u, m.task))) throw forbidden('Bạn không phải người đang thực hiện mốc này');
+  if (body.assigneeId === m.assigneeId) throw badRequest('Mốc đã được giao cho người này');
+  await ensureAssignable(u, body.assigneeId);
+  const out = await checkOutOfGroup(u, [body.assigneeId], body.confirmOutOfGroup);
+  await prisma.milestone.update({
+    where: { id },
+    data: {
+      assigneeId: body.assigneeId,
+      assignedById: u.id,
+      outOfGroup: out.has(body.assigneeId),
+      ...(body.dueDate !== undefined ? { dueDate: toDbDate(body.dueDate) } : {}),
+      ...(body.note ? { note: body.note } : {}),
+    },
+  });
+  const task = await loadTask(m.taskId);
+  const updated = task.milestones.find((x) => x.id === id)!;
+  await log(
+    task.id,
+    u.id,
+    'ASSIGN',
+    `Giao tiếp mốc ${updated.seq}: ${m.assignee?.fullName ?? 'chưa giao'} → ${updated.assignee?.fullName}${updated.outOfGroup ? ' (ngoài nhóm)' : ''}${body.note ? ` — ${body.note}` : ''}`,
+    id,
+  );
+  await notify({
+    userId: body.assigneeId,
+    type: 'ASSIGNED',
+    title: `Được giao mốc việc ${task.code}`,
+    body: `${u.fullName} giao: ${updated.content}${fmtDue(dateStr(updated.dueDate))}`,
+    taskId: task.id,
+    milestoneId: id,
+  });
+  if (updated.outOfGroup) {
+    await recordCrossGroup(u, { kind: 'MILESTONE', task, milestone: updated, assigneeId: body.assigneeId, reason: body.outOfGroupReason });
   }
   res.json(serializeMilestone(updated));
 });

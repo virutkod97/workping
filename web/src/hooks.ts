@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
-import type { Category, UserBrief, User } from './types';
+import type { Assignable, Category, User } from './types';
 
 export const useCategories = () => useQuery({ queryKey: ['categories'], queryFn: () => api.get<Category[]>('/categories') });
 
 export const useAssignable = () =>
-  useQuery({ queryKey: ['assignable'], queryFn: () => api.get<(UserBrief & { managerId: number | null })[]>('/users/assignable') });
+  useQuery({ queryKey: ['assignable'], queryFn: () => api.get<Assignable[]>('/users/assignable') });
 
 export const useUsers = (status: 'ACTIVE' | 'ALL' = 'ACTIVE') =>
   useQuery({ queryKey: ['users', status], queryFn: () => api.get<User[]>(`/users?status=${status}`) });

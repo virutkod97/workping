@@ -2,6 +2,8 @@ export class HttpError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** Dữ liệu bổ sung trả về client (vd danh sách người ngoài nhóm cần xác nhận) */
+    public data?: Record<string, unknown>,
   ) {
     super(message);
   }

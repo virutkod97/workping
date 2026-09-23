@@ -58,37 +58,43 @@ model User {
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  ownedTasks        Task[]         @relation("TaskOwner")
-  assignedTasks     Task[]         @relation("TaskAssigner")
-  milestones        Milestone[]    @relation("MilestoneAssignee")
-  assignedMilestone Milestone[]    @relation("MilestoneAssigner")
+  ownedTasks        Task[]                 @relation("TaskOwner")
+  assignedTasks     Task[]                 @relation("TaskAssigner")
+  milestones        Milestone[]            @relation("MilestoneAssignee")
+  assignedMilestone Milestone[]            @relation("MilestoneAssigner")
   activities        Activity[]
   notifications     Notification[]
   devices           DeviceToken[]
+  crossAssigned     CrossGroupAssignment[] @relation("CrossAssigner")
+  crossReceived     CrossGroupAssignment[] @relation("CrossAssignee")
+  crossLead         CrossGroupAssignment[] @relation("CrossAssigneeLead")
 }
 
 /// Công việc (thay sheet CONG_VIEC)
 model Task {
-  id         Int       @id @default(autoincrement())
-  code       String    @unique // CV001
-  title      String
-  groupName  String? // Nhóm công việc
-  unit       String? // Đơn vị/Bộ phận
-  priority   Priority  @default(MEDIUM)
-  startDate  DateTime? @db.Date
-  dueDate    DateTime? @db.Date
-  note       String?
+  id              Int       @id @default(autoincrement())
+  code            String    @unique // CV001
+  title           String
+  groupName       String? // Nhóm công việc
+  unit            String? // Đơn vị/Bộ phận
+  priority        Priority  @default(MEDIUM)
+  startDate       DateTime? @db.Date
+  dueDate         DateTime? @db.Date
+  note            String?
   /// Cấp 1: người giao (thường là Trưởng phòng)
-  assignerId Int
-  assigner   User      @relation("TaskAssigner", fields: [assignerId], references: [id])
+  assignerId      Int
+  assigner        User      @relation("TaskAssigner", fields: [assignerId], references: [id])
   /// Cấp 2: người phụ trách chung (thường là Phó phòng)
-  ownerId    Int
-  owner      User      @relation("TaskOwner", fields: [ownerId], references: [id])
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  ownerId         Int
+  owner           User      @relation("TaskOwner", fields: [ownerId], references: [id])
+  /// Người phụ trách chung nằm ngoài nhóm của Phó trưởng phòng giao việc
+  ownerOutOfGroup Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   milestones Milestone[]
   activities Activity[]
+  crossGroup CrossGroupAssignment[]
 
   @@index([ownerId])
   @@index([assignerId])
@@ -113,10 +119,13 @@ model Milestone {
   percent      Int             @default(0) // % hoàn thành mốc 0..100
   completedAt  DateTime?       @db.Date
   note         String?
+  /// Người thực hiện nằm ngoài nhóm của Phó trưởng phòng giao mốc
+  outOfGroup   Boolean         @default(false)
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
   activities Activity[]
+  crossGroup CrossGroupAssignment[]
 
   @@index([taskId])
   @@index([assigneeId])
@@ -174,4 +183,33 @@ model Category {
   sortOrder Int          @default(0)
 
   @@unique([type, name])
+}
+
+/// Nhật ký giao việc ra ngoài nhóm do Phó trưởng phòng phụ trách — dùng để tổng hợp báo cáo.
+/// Lưu kèm bản chụp mã/tên công việc để báo cáo vẫn đúng khi công việc bị sửa/xoá.
+model CrossGroupAssignment {
+  id               Int        @id @default(autoincrement())
+  createdAt        DateTime   @default(now())
+  kind             String // TASK_OWNER (giao người phụ trách chung) | MILESTONE (giao mốc)
+  taskId           Int?
+  task             Task?      @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  milestoneId      Int?
+  milestone        Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  taskCode         String
+  taskTitle        String
+  milestoneContent String?
+  /// Phó trưởng phòng giao việc
+  assignerId       Int
+  assigner         User       @relation("CrossAssigner", fields: [assignerId], references: [id], onDelete: Cascade)
+  /// Nhân sự nhận việc (ngoài nhóm)
+  assigneeId       Int
+  assignee         User       @relation("CrossAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+  /// Người đang quản lý nhóm của nhân sự nhận việc tại thời điểm giao
+  assigneeLeadId   Int?
+  assigneeLead     User?      @relation("CrossAssigneeLead", fields: [assigneeLeadId], references: [id], onDelete: SetNull)
+  reason           String?
+
+  @@index([createdAt])
+  @@index([assignerId])
+  @@index([assigneeId])
 }

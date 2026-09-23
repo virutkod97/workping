@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma';
 import { me, requireRole } from '../lib/auth';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { idParam, parse } from '../lib/validate';
-import { assignableIds, isManagerRole, subordinateIds } from '../lib/permissions';
+import { assignableIds, groupLeadOf, isManagerRole, subordinateIds } from '../lib/permissions';
 import { config } from '../config';
 import { nextUserCode } from '../services/codes';
 
@@ -74,15 +74,29 @@ usersRouter.get('/', async (req, res) => {
   res.json(isManagerRole(u) ? users : users.map((x) => ({ ...x, username: x.id === u.id ? x.username : undefined })));
 });
 
-/** Danh sách người mà user hiện tại được phép giao việc */
+/**
+ * Danh sách người mà user hiện tại được phép giao việc.
+ * inGroup=false: nhân sự ngoài nhóm Phó trưởng phòng phụ trách (giao được nhưng phải xác nhận).
+ */
 usersRouter.get('/assignable', async (req, res) => {
-  const ids = await assignableIds(me(req));
+  const u = me(req);
+  const ids = await assignableIds(u);
+  const group = u.role === 'DEPUTY' ? new Set([u.id, ...(await subordinateIds(u.id))]) : null;
   const users = await prisma.user.findMany({
     where: { status: 'ACTIVE', ...(ids ? { id: { in: ids } } : {}) },
     select: { id: true, code: true, fullName: true, title: true, role: true, team: true, managerId: true },
     orderBy: [{ role: 'asc' }, { code: 'asc' }],
   });
-  res.json(users);
+  const withFlag = await Promise.all(
+    users.map(async (x) => ({
+      ...x,
+      inGroup: !group || group.has(x.id),
+      groupLead: group && !group.has(x.id) ? ((await groupLeadOf(x.id))?.fullName ?? null) : null,
+    })),
+  );
+  // Người trong nhóm lên trước
+  withFlag.sort((a, b) => Number(b.inGroup) - Number(a.inGroup));
+  res.json(withFlag);
 });
 
 usersRouter.get('/:id', async (req, res) => {

@@ -6,12 +6,15 @@ import { api } from '../api';
 import { fmtDate } from '../hooks';
 import type { Milestone, MyWorkItem } from '../types';
 import { DaysLeft, MilestoneStatusTag, PriorityTag, WarningTag } from '../components/Tags';
-import { ProgressModal } from '../components/MilestoneModals';
+import { DelegateModal, ProgressModal } from '../components/MilestoneModals';
+import { useAuth } from '../auth';
 
 /** "Việc cần xử lý" của tôi — thay sheet VIEC_CAN_XU_LY */
 export default function MyWork() {
   const [filter, setFilter] = useState<'open' | 'OVERDUE' | 'DUE_SOON' | 'all'>('open');
   const [progress, setProgress] = useState<Milestone | null>(null);
+  const [delegate, setDelegate] = useState<Milestone | null>(null);
+  const { canAssign } = useAuth();
   const { data = [], isLoading } = useQuery({
     queryKey: ['my-work', filter === 'all'],
     queryFn: () => api.get<MyWorkItem[]>(`/dashboard/my-work${filter === 'all' ? '?includeDone=1' : ''}`),
@@ -41,6 +44,13 @@ export default function MyWork() {
           renderItem={(m) => (
             <List.Item
               actions={[
+                ...(canAssign && m.status !== 'DONE'
+                  ? [
+                      <Button key="d" size="small" onClick={() => setDelegate(m)}>
+                        Giao tiếp
+                      </Button>,
+                    ]
+                  : []),
                 <Button key="u" type="primary" size="small" onClick={() => setProgress(m)} disabled={m.status === 'DONE' && filter !== 'all'}>
                   Cập nhật
                 </Button>,
@@ -73,6 +83,7 @@ export default function MyWork() {
         />
       </Card>
       <ProgressModal open={!!progress} milestone={progress} onClose={() => setProgress(null)} />
+      <DelegateModal milestone={delegate} onClose={() => setDelegate(null)} />
     </>
   );
 }

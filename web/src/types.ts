@@ -38,6 +38,8 @@ export interface Milestone {
   percent: number;
   completedAt: string | null;
   note: string | null;
+  /** Người thực hiện nằm ngoài nhóm của Phó trưởng phòng đã giao */
+  outOfGroup: boolean;
   warning: Warning;
   warningLabel: string;
   daysLeft: number | null;
@@ -56,6 +58,7 @@ export interface Task {
   note: string | null;
   owner: UserBrief;
   assigner: UserBrief;
+  ownerOutOfGroup: boolean;
   progress: number;
   state: TaskState;
   stateLabel: string;
@@ -112,7 +115,7 @@ export interface Dashboard {
 export const ROLE_LABEL: Record<Role, string> = {
   ADMIN: 'Quản trị',
   HEAD: 'Trưởng phòng',
-  DEPUTY: 'Phó phòng',
+  DEPUTY: 'Phó trưởng phòng',
   STAFF: 'Nhân viên',
 };
 
@@ -132,3 +135,25 @@ export const TASK_STATE_LABEL: Record<TaskState, string> = {
   NOT_STARTED: 'Chưa thực hiện',
   IN_PROGRESS: 'Đang thực hiện',
 };
+
+/** Người có thể giao việc (kèm cờ trong/ngoài nhóm với Phó trưởng phòng) */
+export interface Assignable extends UserBrief {
+  managerId: number | null;
+  inGroup: boolean;
+  groupLead: string | null;
+}
+
+export interface CrossGroupRow {
+  id: number;
+  createdAt: string;
+  kind: 'TASK_OWNER' | 'MILESTONE';
+  taskId: number | null;
+  taskCode: string;
+  taskTitle: string;
+  milestoneContent: string | null;
+  reason: string | null;
+  assigner: { id: number; code: string; fullName: string };
+  assignee: { id: number; code: string; fullName: string };
+  assigneeLead: { id: number; code: string; fullName: string } | null;
+  milestone: { status: MilestoneStatus; percent: number } | null;
+}

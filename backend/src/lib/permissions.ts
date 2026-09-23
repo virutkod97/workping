@@ -4,9 +4,11 @@ import type { AuthUser } from './auth';
 
 /**
  * Giao việc 3 cấp:
- *   Trưởng phòng (HEAD) ──giao──▶ Phó phòng (DEPUTY) ──giao──▶ Nhân viên (STAFF)
+ *   Trưởng phòng (HEAD) ──giao──▶ Phó trưởng phòng (DEPUTY) ──giao tiếp──▶ Nhân viên (STAFF)
  * - HEAD/ADMIN: xem & giao việc cho toàn phòng.
- * - DEPUTY: xem việc của mình và cấp dưới; giao việc cho chính mình hoặc cấp dưới.
+ * - DEPUTY: phụ trách 1 nhóm = các nhân sự có "quản lý trực tiếp" là mình (và cấp dưới của họ).
+ *   Giao được cho bản thân, người trong nhóm, và nhân viên nhóm khác — nhưng giao ra NGOÀI NHÓM
+ *   phải xác nhận và được ghi nhật ký CrossGroupAssignment để báo cáo.
  * - STAFF: xem việc được giao; chỉ tự tạo việc cho bản thân; cập nhật tiến độ mốc của mình.
  */
 export const isManagerRole = (u: AuthUser) => u.role === 'ADMIN' || u.role === 'HEAD';
@@ -33,7 +35,11 @@ export async function subordinateIds(userId: number): Promise<number[]> {
 /** Tập người mà user được phép giao việc; null = toàn bộ */
 export async function assignableIds(u: AuthUser): Promise<number[] | null> {
   if (isManagerRole(u)) return null;
-  if (u.role === 'DEPUTY') return [u.id, ...(await subordinateIds(u.id))];
+  if (u.role === 'DEPUTY') {
+    // Bản thân + nhóm mình + nhân viên các nhóm khác (giao ngoài nhóm sẽ bị cảnh báo)
+    const staff = await prisma.user.findMany({ where: { role: 'STAFF', status: 'ACTIVE' }, select: { id: true } });
+    return [...new Set([u.id, ...(await subordinateIds(u.id)), ...staff.map((x) => x.id)])];
+  }
   return [u.id];
 }
 
@@ -42,6 +48,26 @@ export async function canAssignTo(u: AuthUser, targetId: number): Promise<boolea
   if (ids && !ids.includes(targetId)) return false;
   const target = await prisma.user.findUnique({ where: { id: targetId }, select: { status: true } });
   return !!target && target.status === 'ACTIVE';
+}
+
+/** Phó trưởng phòng giao cho người không thuộc nhóm mình phụ trách? (Trưởng phòng/Admin không bị giới hạn nhóm) */
+export async function isOutOfGroup(u: AuthUser, targetId: number): Promise<boolean> {
+  if (u.role !== 'DEPUTY' || targetId === u.id) return false;
+  return !(await subordinateIds(u.id)).includes(targetId);
+}
+
+/** Phó trưởng phòng đang phụ trách nhóm của một nhân sự (đi ngược lên cây quản lý) */
+export async function groupLeadOf(userId: number): Promise<{ id: number; fullName: string } | null> {
+  let cur = await prisma.user.findUnique({ where: { id: userId }, select: { managerId: true } });
+  const seen = new Set<number>([userId]);
+  while (cur?.managerId && !seen.has(cur.managerId)) {
+    seen.add(cur.managerId);
+    const m = await prisma.user.findUnique({ where: { id: cur.managerId }, select: { id: true, fullName: true, role: true, managerId: true } });
+    if (!m) return null;
+    if (m.role === 'DEPUTY') return { id: m.id, fullName: m.fullName };
+    cur = m;
+  }
+  return null;
 }
 
 /** Điều kiện lọc các công việc user được xem */
@@ -53,6 +79,8 @@ export async function taskVisibilityWhere(u: AuthUser): Promise<Prisma.TaskWhere
       { ownerId: { in: ids } },
       { assignerId: { in: ids } },
       { milestones: { some: { assigneeId: { in: ids } } } },
+      // Việc mình đã giao tiếp cho người khác (kể cả ngoài nhóm) vẫn theo dõi được
+      { milestones: { some: { assignedById: u.id } } },
     ],
   };
 }

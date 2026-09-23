@@ -37,16 +37,25 @@ Công thức giữ nguyên như Excel:
 
 | Cấp | Xem | Giao việc cho | Quản lý công việc |
 |---|---|---|---|
-| **Quản trị / Trưởng phòng** | Toàn phòng | Bất kỳ ai | Mọi công việc; quản lý nhân sự, danh mục, nhập/xuất Excel |
-| **Phó phòng** | Việc của mình + cấp dưới | Bản thân & nhân viên cấp dưới | Việc mình được giao/đã giao hoặc của cấp dưới: sửa, chia mốc, giao mốc |
+| **Quản trị / Trưởng phòng** | Toàn phòng | Bất kỳ ai (không bị giới hạn nhóm) | Mọi công việc; quản lý nhân sự, danh mục, nhập/xuất Excel |
+| **Phó trưởng phòng** | Việc của mình, của nhóm mình và việc mình đã giao đi | Bản thân, nhân sự **trong nhóm**; nhân viên **nhóm khác** (có cảnh báo) | Việc được giao/đã giao hoặc của nhóm mình: sửa, chia mốc, giao mốc, **giao tiếp** |
 | **Nhân viên** | Việc mình tham gia | Chỉ bản thân (tự tạo việc riêng) | Cập nhật tiến độ, ghi chú các mốc được giao; bình luận |
+
+**Nhóm của Phó trưởng phòng** = các nhân sự có *Nhóm / quản lý trực tiếp* là Phó trưởng phòng đó (trang Nhân sự → Sơ đồ nhóm). Khi nhập Excel, nhân viên tự được xếp vào nhóm của Phó trưởng phòng cùng *Bộ phận*.
 
 Luồng điển hình:
 
-1. **Trưởng phòng** tạo công việc (vd theo văn bản đến) → chọn **Phó phòng** phụ trách chung.
-2. **Phó phòng** chia công việc thành các **mốc**, giao từng mốc cho **nhân viên** kèm hạn và trọng số.
-3. **Nhân viên** nhận push → mở app → *Việc của tôi* → cập nhật trạng thái/%/ghi chú.
+1. **Trưởng phòng** tạo công việc (vd theo văn bản đến) → giao **Phó trưởng phòng** phụ trách chung (hoặc giao mốc cho PTP).
+2. **Phó trưởng phòng** nhận thông báo → *Việc của tôi* → nút **Giao tiếp** trên từng mốc để chuyển xuống nhân viên (kèm hạn và chỉ đạo), hoặc *Thêm mốc / giao việc* để chia nhỏ công việc.
+3. **Nhân viên** nhận push → *Việc của tôi* → cập nhật trạng thái/%/ghi chú.
 4. Người giao & người phụ trách nhận thông báo mỗi lần đổi trạng thái; khi mọi mốc xong, Trưởng phòng nhận “Hoàn thành công việc”.
+
+**Giao việc ngoài nhóm**: trong ô chọn người, nhân sự ngoài nhóm có nhãn **Ngoài nhóm**. Nếu Phó trưởng phòng vẫn chọn, hệ thống hiện cảnh báo và hỏi lý do; xác nhận thì vẫn giao được, đồng thời:
+- đánh dấu “Ngoài nhóm” trên mốc/công việc;
+- ghi vào bảng `CrossGroupAssignment` (người giao, người nhận, nhóm của người nhận, công việc, mốc, lý do, thời điểm);
+- báo cho Phó trưởng phòng đang quản lý nhân sự đó.
+
+Menu **Giao ngoài nhóm** tổng hợp theo khoảng thời gian (số lần, số người theo từng PTP) và xuất Excel.
 
 Mọi thao tác được ghi vào **lịch sử** của công việc; có thể **bình luận/chỉ đạo** ngay trong công việc.
 
@@ -118,9 +127,11 @@ Xem [`mobile/README.md`](mobile/README.md): build Android (APK/AAB) & iOS bằng
 | Phương thức | Đường dẫn | Mô tả |
 |---|---|---|
 | POST | `/api/auth/login` | Đăng nhập → JWT |
-| GET/POST/PUT/DELETE | `/api/users` | Nhân sự (`/assignable`: người mình được giao việc) |
+| GET/POST/PUT/DELETE | `/api/users` | Nhân sự (`/assignable`: người mình được giao việc, kèm `inGroup`) |
 | GET/POST/PUT/DELETE | `/api/tasks` | Công việc (lọc `scope`, `state`, `ownerId`, `groupName`, `priority`, `q`) |
 | POST | `/api/tasks/:id/milestones` | Thêm mốc / giao mốc |
+| POST | `/api/milestones/:id/delegate` | Giao tiếp mốc xuống nhân viên |
+| GET | `/api/reports/cross-group` (`/export`) | Báo cáo giao việc ngoài nhóm (lọc `from`, `to`, `assignerId`) |
 | PUT/DELETE | `/api/milestones/:id` | Sửa / xoá mốc |
 | PATCH | `/api/milestones/:id/progress` | Cập nhật tiến độ mốc (người thực hiện) |
 | POST | `/api/tasks/:id/comments` | Bình luận |

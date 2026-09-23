@@ -8,6 +8,7 @@ import { useAuth } from '../auth';
 import { useCategories } from '../hooks';
 import type { Task } from '../types';
 import { AssigneeSelect } from './UserSelect';
+import { isCancelled, useOutOfGroupGuard } from '../outOfGroup';
 
 interface Props {
   open: boolean;
@@ -24,6 +25,7 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const { data: cats = [] } = useCategories();
+  const guard = useOutOfGroupGuard();
 
   useEffect(() => {
     if (!open) return;
@@ -50,7 +52,7 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
           ? undefined
           : ((v.milestones as Record<string, unknown>[] | undefined) ?? []).map((m) => ({ ...m, dueDate: toStr(m.dueDate as Dayjs) })),
       };
-      return task ? api.put<Task>(`/tasks/${task.id}`, body) : api.post<Task>('/tasks', body);
+      return guard((extra) => (task ? api.put<Task>(`/tasks/${task.id}`, { ...body, ...extra }) : api.post<Task>('/tasks', { ...body, ...extra })));
     },
     onSuccess: (t) => {
       message.success(task ? 'Đã cập nhật công việc' : `Đã tạo công việc ${t.code}`);
@@ -58,7 +60,7 @@ export function TaskFormModal({ open, task, onClose, onSaved }: Props) {
       onSaved?.(t);
       onClose();
     },
-    onError: (e: Error) => message.error(e.message),
+    onError: (e: Error) => !isCancelled(e) && message.error(e.message),
   });
 
   return (

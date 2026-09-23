@@ -8,6 +8,8 @@ import { colors } from '../../lib/theme';
 import type { Milestone, MyWorkItem } from '../../lib/types';
 import { Button, Card, Chips, Empty, MsStatusTag, PriorityTag, ProgressBar, WarningTag, s } from '../../components/ui';
 import { ProgressSheet } from '../../components/ProgressSheet';
+import { DelegateSheet } from '../../components/MilestoneSheet';
+import { useAuth } from '../../lib/auth';
 
 type F = 'open' | 'OVERDUE' | 'DUE_SOON' | 'all';
 
@@ -15,6 +17,8 @@ type F = 'open' | 'OVERDUE' | 'DUE_SOON' | 'all';
 export default function MyWork() {
   const [f, setF] = useState<F>('open');
   const [editing, setEditing] = useState<Milestone | null>(null);
+  const [delegate, setDelegate] = useState<Milestone | null>(null);
+  const { canAssign } = useAuth();
   const { data = [], isFetching, refetch } = useQuery({
     queryKey: ['my-work', f === 'all'],
     queryFn: () => api.get<MyWorkItem[]>(`/dashboard/my-work${f === 'all' ? '?includeDone=1' : ''}`),
@@ -62,13 +66,17 @@ export default function MyWork() {
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                 <Text style={s.muted}>Giao bởi {m.assignedBy?.fullName ?? m.task.owner.fullName}</Text>
-                <Button title="Cập nhật" small onPress={() => setEditing(m)} />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {canAssign && m.status !== 'DONE' && <Button title="Giao tiếp" small variant="default" onPress={() => setDelegate(m)} />}
+                  <Button title="Cập nhật" small onPress={() => setEditing(m)} />
+                </View>
               </View>
             </Card>
           </Pressable>
         )}
       />
       <ProgressSheet milestone={editing} onClose={() => setEditing(null)} />
+      <DelegateSheet milestone={delegate} onClose={() => setDelegate(null)} />
     </View>
   );
 }
