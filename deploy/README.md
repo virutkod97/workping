@@ -190,6 +190,7 @@ Việc quản trị cần làm:
 | Không lấy được chứng chỉ HTTPS | Kiểm tra tên miền trỏ đúng IP (`dig +short tên-miền`), cổng **80** mở từ Internet (kể cả khi dùng `--https-port`), chạy lại script. Không mở được cổng 80 → dùng `--ssl-cert/--ssl-key` |
 | Không có nút *Bật thông báo* | Phải truy cập bằng **https://** (không phải http://IP). iPhone: phải mở từ biểu tượng trên màn hình chính, iOS ≥ 16.4 |
 | Bật rồi nhưng không nhận push | Bấm *Gửi thông báo thử*; xem log `sudo journalctl -u workping | grep push`. Máy chủ phải ra được Internet tới `web.push.apple.com`, `fcm.googleapis.com` (cổng 443) — nếu đi qua proxy, thêm `PUSH_PROXY=http://proxy:port` vào `/etc/workping/workping.env` rồi restart |
+| Gửi thử báo `BadJwtToken` / giờ hạn công việc bị lệch | Đồng hồ máy chủ sai. Mạng chặn NTP thì script tự đồng bộ giờ qua HTTPS 30 phút/lần; chạy ngay: `sudo workping-timesync --force`. Xem: `timedatectl`, `journalctl -t workping-timesync` |
 | iPhone lâu lâu không nhận | Kiểm tra *Cài đặt → Thông báo → WorkPing*; chế độ Tập trung/Không làm phiền có thể chặn |
 | Quên mật khẩu admin | `sudo cat /etc/workping/admin-credentials.txt` (mật khẩu ban đầu), hoặc Trưởng phòng/Admin khác đặt lại ở trang Nhân sự |
 | Đổi cổng 4000 bị trùng | `sudo bash deploy/install.sh --port 4100` |

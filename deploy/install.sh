@@ -127,8 +127,13 @@ apt-get install -y -qq "${PKGS[@]}" >/dev/null
 ok "Đã cài: ${PKGS[*]}"
 # Đồng hồ lệch → Apple từ chối thông báo đẩy (BadJwtToken): bật đồng bộ giờ tự động
 timedatectl set-ntp true 2>/dev/null || true
+# Mạng chặn NTP → đồng bộ giờ qua HTTPS (chạy ngay + 30 phút/lần)
+install -m 755 "$SRC_DIR/deploy/timesync.sh" /usr/local/bin/workping-timesync
+echo "*/30 * * * * root /usr/local/bin/workping-timesync >/dev/null 2>&1" > /etc/cron.d/workping-timesync
 if [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == "no" ]]; then
   warn "Đồng hồ máy chủ chưa đồng bộ NTP (có thể bị chặn UDP 123) — giờ hiện tại: $(date '+%d/%m/%Y %H:%M:%S')"
+  if /usr/local/bin/workping-timesync --force; then ok "Đã đồng bộ giờ qua HTTPS: $(date '+%d/%m/%Y %H:%M:%S') (tự chạy lại 30 phút/lần)"
+  else warn "Không đồng bộ được giờ qua HTTPS — chỉnh tay: sudo timedatectl set-ntp false && sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'"; fi
 fi
 
 # ------------------------------ 2. Node.js ------------------------------
