@@ -2,7 +2,7 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/errors';
 import type { AuthUser } from '../lib/auth';
 import { groupLeadOf, isOutOfGroup } from '../lib/permissions';
-import { notify } from './notify';
+import { notify, taskLines } from './notify';
 
 export interface OutOfGroupPerson {
   id: number;
@@ -65,8 +65,8 @@ export async function recordCrossGroup(
     await notify({
       userId: lead.id,
       type: 'ASSIGNED',
-      title: `Nhân sự nhóm bạn được giao việc ngoài nhóm: ${x.task.code}`,
-      body: `${u.fullName} giao cho ${who?.fullName}: ${x.milestone?.content ?? x.task.title}${x.reason ? ` — Lý do: ${x.reason}` : ''}`,
+      title: 'Nhân viên nhóm bạn được giao việc ngoài nhóm',
+      body: taskLines({ taskTitle: x.task.title, giver: u.fullName, to: who?.fullName, part: x.milestone?.content, extra: x.reason ? `Lý do: ${x.reason}` : null }),
       taskId: x.task.id,
       milestoneId: x.milestone?.id ?? null,
     });

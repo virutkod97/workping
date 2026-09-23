@@ -37,7 +37,7 @@ export default function Notifications() {
                 title={<Badge dot={!n.readAt} offset={[6, 0]}>{n.title}</Badge>}
                 description={
                   <>
-                    <div>{n.body}</div>
+                    <div style={{ whiteSpace: 'pre-line' }}>{n.body}</div>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>{dayjs(n.createdAt).format('HH:mm DD/MM/YYYY')}</Typography.Text>
                   </>
                 }

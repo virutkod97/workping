@@ -4,15 +4,8 @@ import { prisma } from '../lib/prisma';
 import { dateStr, daysUntil, todayStr } from '../lib/dates';
 import { milestoneWarning, taskProgress, taskState } from '../lib/status';
 import { subordinateIds } from '../lib/permissions';
-import { notify } from './notify';
+import { notify, taskLines } from './notify';
 import { notifyCertExpiry } from './cert';
-
-function ddmm(d: Date | null) {
-  const s = dateStr(d);
-  if (!s) return '';
-  const [y, m, day] = s.split('-');
-  return `${day}/${m}/${y}`;
-}
 
 /**
  * Chạy nhắc việc:
@@ -28,26 +21,30 @@ export async function runReminders(now: Date = new Date()) {
   const milestones = await prisma.milestone.findMany({
     where: { status: { notIn: ['DONE', 'PAUSED'] } },
     include: {
-      task: { select: { id: true, code: true, title: true } },
+      task: { select: { id: true, code: true, title: true, assigner: { select: { fullName: true } } } },
       assignee: { select: { status: true } },
-      members: { where: { status: { notIn: ['DONE', 'PAUSED'] }, user: { status: 'ACTIVE' } }, select: { userId: true, status: true } },
+      assignedBy: { select: { fullName: true } },
+      members: {
+        where: { status: { notIn: ['DONE', 'PAUSED'] }, user: { status: 'ACTIVE' } },
+        select: { userId: true, status: true, assignedBy: { select: { fullName: true } } },
+      },
     },
   });
   // Người cần nhắc cho từng mốc: người chủ trì + những người thực hiện (giao bổ sung) chưa xong phần của mình
   const targets = milestones.flatMap((m) => [
-    ...(m.assigneeId && m.assignee?.status === 'ACTIVE' ? [{ m, userId: m.assigneeId, status: m.status }] : []),
-    ...m.members.map((x) => ({ m, userId: x.userId, status: x.status })),
+    ...(m.assigneeId && m.assignee?.status === 'ACTIVE' ? [{ m, userId: m.assigneeId, status: m.status, giver: m.assignedBy?.fullName ?? m.task.assigner.fullName }] : []),
+    ...m.members.map((x) => ({ m, userId: x.userId, status: x.status, giver: x.assignedBy?.fullName ?? m.task.assigner.fullName })),
   ]);
 
   // 1) Nhắc theo từng mốc
-  for (const { m, userId } of targets) {
+  for (const { m, userId, giver } of targets) {
     const d = daysUntil(m.dueDate, now);
     if (d === null || !config.remindDays.includes(d)) continue;
     const sent = await notify({
       userId,
       type: 'REMINDER',
-      title: d === 0 ? `Hôm nay đến hạn: ${m.task.code}` : `Còn ${d} ngày đến hạn: ${m.task.code}`,
-      body: `${m.content} (hạn ${ddmm(m.dueDate)})`,
+      title: d === 0 ? 'Công việc đến hạn hôm nay' : `Công việc sắp đến hạn (còn ${d} ngày)`,
+      body: taskLines({ taskTitle: m.task.title, giver, part: m.content, due: m.dueDate }),
       taskId: m.task.id,
       milestoneId: m.id,
       dedupeKey: `remind:m${m.id}:u${userId}:${today}`,

@@ -16,7 +16,7 @@ import {
 import { MILESTONE_STATUS_LABEL, taskProgress } from '../lib/status';
 import { serializeMilestone, serializeTask, taskInclude, userBrief } from '../services/serialize';
 import { nextTaskCode } from '../services/codes';
-import { notify, notifyMany } from '../services/notify';
+import { notify, notifyMany, taskLines } from '../services/notify';
 import { checkOutOfGroup, recordCrossGroup } from '../services/crossGroup';
 import { notifyLeadsOfDirectAssign, recomputeMilestone } from '../services/members';
 import { memberInclude } from '../services/serialize';
@@ -80,15 +80,27 @@ async function ensureAssignable(u: AuthUser, userId: number | null | undefined) 
   }
 }
 
+/**
+ * Nội dung báo cho người phụ trách: kèm các mốc người đó chủ trì / thực hiện và hạn gần nhất
+ * (người phụ trách thường cũng chủ trì mốc → không gửi thêm thông báo mốc riêng)
+ */
+function ownerLines(
+  task: { title: string; dueDate: Date | null; milestones: { content: string; dueDate: Date | null; assigneeId: number | null; members?: { userId: number }[] }[] },
+  ownerId: number,
+  giver: string,
+) {
+  const mine = task.milestones.filter((m) => m.assigneeId === ownerId || m.members?.some((x) => x.userId === ownerId));
+  const names = mine.map((m) => m.content);
+  const part = names.length > 2 ? `${names.slice(0, 2).join(', ')} (+${names.length - 2} mốc)` : names.join(', ');
+  const dues = mine.map((m) => m.dueDate).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime());
+  const due = mine.length === 1 && mine[0].dueDate ? mine[0].dueDate : (task.dueDate ?? dues[0] ?? null);
+  return taskLines({ taskTitle: task.title, giver, part, due });
+}
+
 function log(taskId: number, userId: number, type: string, content: string, milestoneId?: number | null) {
   return prisma.activity.create({ data: { taskId, userId, type, content, milestoneId: milestoneId ?? null } });
 }
 
-function fmtDue(d: string | null | undefined) {
-  if (!d) return '';
-  const [y, m, day] = d.slice(0, 10).split('-');
-  return ` — hạn ${day}/${m}/${y}`;
-}
 
 /** Tự suy ra trạng thái/% khi người dùng cập nhật một trong hai */
 function normalizeProgress(
@@ -188,8 +200,8 @@ async function addMembers(
       await notify({
         userId: id,
         type: 'ASSIGNED',
-        title: `Được giao việc ${task.code}`,
-        body: `${u.fullName} giao: ${m.content}${fmtDue(dateStr(m.dueDate))}${note ? ` — ${note}` : ''}`,
+        title: 'Công việc mới',
+        body: taskLines({ taskTitle: task.title, giver: u.fullName, part: m.content, due: m.dueDate, extra: note }),
         taskId: task.id,
         milestoneId,
       });
@@ -318,13 +330,12 @@ tasksRouter.post('/', async (req, res) => {
   await notifyLeadsOfDirectAssign(u, task, task.title, [ownerId, ...task.milestones.map((m) => m.assigneeId).filter((x): x is number => !!x)]);
   if (memberPlan.length) task = await loadTask(task.id);
 
-  const due = fmtDue(body.dueDate);
   if (ownerId !== u.id) {
     await notify({
       userId: ownerId,
       type: 'ASSIGNED',
-      title: `Việc mới được giao: ${task.code}`,
-      body: `${u.fullName} giao: ${task.title}${due}`,
+      title: 'Công việc mới',
+      body: ownerLines(task, ownerId, u.fullName),
       taskId: task.id,
     });
   }
@@ -333,8 +344,8 @@ tasksRouter.post('/', async (req, res) => {
       await notify({
         userId: m.assigneeId,
         type: 'ASSIGNED',
-        title: `Được giao mốc việc ${task.code}`,
-        body: `${m.content}${fmtDue(dateStr(m.dueDate))}`,
+        title: 'Công việc mới',
+        body: taskLines({ taskTitle: task.title, giver: u.fullName, part: m.content, due: m.dueDate }),
         taskId: task.id,
         milestoneId: m.id,
       });
@@ -405,8 +416,8 @@ tasksRouter.put('/:id', async (req, res) => {
     await notify({
       userId: body.ownerId,
       type: 'ASSIGNED',
-      title: `Việc mới được giao: ${updated.code}`,
-      body: `${u.fullName} giao: ${updated.title}${fmtDue(dateStr(updated.dueDate))}`,
+      title: 'Công việc mới',
+      body: ownerLines(updated, body.ownerId, u.fullName),
       taskId: id,
     });
   }
@@ -416,8 +427,8 @@ tasksRouter.put('/:id', async (req, res) => {
     changes.push(`Đổi hạn cuối: ${oldDue ?? '(trống)'} → ${newDue ?? '(trống)'}`);
     await notifyMany([updated.ownerId, ...updated.milestones.map((m) => m.assigneeId)], u.id, {
       type: 'UPDATED',
-      title: `Đổi hạn công việc ${updated.code}`,
-      body: `${updated.title}${fmtDue(newDue)}`,
+      title: 'Công việc đổi hạn',
+      body: taskLines({ taskTitle: updated.title, action: `${u.fullName} đổi hạn`, due: newDue }),
       taskId: id,
     });
   }
@@ -453,8 +464,8 @@ tasksRouter.post('/:id/comments', async (req, res) => {
   });
   await notifyMany([task.ownerId, task.assignerId, ...task.milestones.map((m) => m.assigneeId)], u.id, {
     type: 'COMMENT',
-    title: `${u.fullName} bình luận ${task.code}`,
-    body: body.content.slice(0, 200),
+    title: `${u.fullName} bình luận`,
+    body: `${task.title}\n${body.content.slice(0, 200)}`,
     taskId: id,
     milestoneId: body.milestoneId ?? null,
   });
@@ -496,8 +507,8 @@ tasksRouter.post('/:id/milestones', async (req, res) => {
     await notify({
       userId: m.assigneeId,
       type: 'ASSIGNED',
-      title: `Được giao mốc việc ${task.code}`,
-      body: `${m.content}${fmtDue(dateStr(m.dueDate))}`,
+      title: 'Công việc mới',
+      body: taskLines({ taskTitle: task.title, giver: u.fullName, part: m.content, due: m.dueDate }),
       taskId: id,
       milestoneId: m.id,
     });
@@ -536,16 +547,16 @@ async function afterProgressChange(
     await log(taskId, u.id, 'STATUS', `Mốc ${m.seq}: ${MILESTONE_STATUS_LABEL[before.status]} → ${MILESTONE_STATUS_LABEL[m.status]}`, m.id);
     if (!quiet) await notifyMany([task.ownerId, task.assignerId, m.assigneeId, m.assignedById], u.id, {
       type: 'STATUS',
-      title: `${task.code}: mốc ${m.seq} ${MILESTONE_STATUS_LABEL[m.status].toLowerCase()}`,
-      body: `${u.fullName} cập nhật: ${m.content}`,
+      title: `Mốc việc ${MILESTONE_STATUS_LABEL[m.status].toLowerCase()}`,
+      body: taskLines({ taskTitle: task.title, action: `${u.fullName} cập nhật`, part: m.content }),
       taskId,
       milestoneId: m.id,
     });
     if (m.status === 'DONE' && taskProgress(task.milestones) >= 100) {
       await notifyMany([task.assignerId, task.ownerId], u.id, {
         type: 'STATUS',
-        title: `Hoàn thành công việc ${task.code}`,
-        body: task.title,
+        title: 'Công việc đã hoàn thành',
+        body: taskLines({ taskTitle: task.title, action: `${u.fullName} hoàn thành mốc cuối` }),
         taskId,
       });
     }
@@ -603,8 +614,8 @@ milestonesRouter.put('/:id', async (req, res) => {
       await notify({
         userId: updated.assigneeId,
         type: 'ASSIGNED',
-        title: `Được giao mốc việc ${task.code}`,
-        body: `${updated.content}${fmtDue(dateStr(updated.dueDate))}`,
+        title: 'Công việc mới',
+        body: taskLines({ taskTitle: task.title, giver: u.fullName, part: updated.content, due: updated.dueDate }),
         taskId: task.id,
         milestoneId: id,
       });
@@ -616,8 +627,8 @@ milestonesRouter.put('/:id', async (req, res) => {
     await notify({
       userId: updated.assigneeId,
       type: 'UPDATED',
-      title: `Đổi hạn mốc việc ${task.code}`,
-      body: `${updated.content}${fmtDue(newDue)}`,
+      title: 'Mốc việc đổi hạn',
+      body: taskLines({ taskTitle: task.title, action: `${u.fullName} đổi hạn`, part: updated.content, due: newDue }),
       taskId: task.id,
       milestoneId: id,
     });
@@ -700,8 +711,8 @@ milestonesRouter.patch('/:id/progress', async (req, res) => {
       await log(m.taskId, u.id, 'STATUS', `Mốc ${m.seq} – phần của ${u.fullName}: ${MILESTONE_STATUS_LABEL[member.status]} → ${MILESTONE_STATUS_LABEL[prog.status]} (${doneCount}/${m.members.length} người xong)`, id);
       await notifyMany([m.assigneeId, member.assignedById, m.task.ownerId], u.id, {
         type: 'STATUS',
-        title: `${m.task.code}: ${u.fullName} ${MILESTONE_STATUS_LABEL[prog.status].toLowerCase()} (${doneCount}/${m.members.length})`,
-        body: m.content,
+        title: `${u.fullName}: ${MILESTONE_STATUS_LABEL[prog.status].toLowerCase()} (${doneCount}/${m.members.length} người)`,
+        body: taskLines({ taskTitle: m.task.title, action: 'Phần việc', part: m.content }),
         taskId: m.taskId,
         milestoneId: id,
       });

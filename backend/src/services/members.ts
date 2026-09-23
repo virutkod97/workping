@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { toDbDate, todayStr } from '../lib/dates';
 import type { AuthUser } from '../lib/auth';
 import { groupLeadOf, isManagerRole } from '../lib/permissions';
-import { notify } from './notify';
+import { notify, taskLines } from './notify';
 
 /**
  * Tính lại trạng thái mốc từ các người thực hiện (giao bổ sung):
@@ -57,8 +57,8 @@ export async function notifyLeadsOfDirectAssign(
     await notify({
       userId: leadId,
       type: 'ASSIGNED',
-      title: `${u.fullName} giao trực tiếp cho nhân viên nhóm bạn: ${task.code}`,
-      body: `${names.join(', ')} — ${what}`,
+      title: 'Nhân viên nhóm bạn được giao việc',
+      body: taskLines({ taskTitle: task.title, giver: u.fullName, to: names.join(', '), part: what }),
       taskId: task.id,
       milestoneId: milestoneId ?? null,
     });

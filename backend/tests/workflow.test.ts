@@ -68,7 +68,7 @@ describe('giao việc 3 cấp', () => {
     expect(t.body.state).toBe('DONE');
     expect(t.body.milestones[1].completedAt).toBeTruthy();
     const headInbox = await inbox(head.id);
-    expect(headInbox.some((n) => n.title.startsWith('Hoàn thành công việc CV001'))).toBe(true);
+    expect(headInbox.some((n) => n.title === 'Công việc đã hoàn thành')).toBe(true);
     expect(t.body.activities.some((a: { type: string }) => a.type === 'STATUS')).toBe(true);
   });
 
@@ -173,7 +173,7 @@ describe('nhắc việc tự động', () => {
     expect(s1.digests).toBe(1);
     expect(s1.managerDigests).toBe(2); // TP + PP A
     const n = await inbox(staffA.id);
-    expect(n.find((x) => x.type === 'REMINDER')?.title).toContain('Hôm nay đến hạn');
+    expect(n.find((x) => x.type === 'REMINDER')?.title).toBe('Công việc đến hạn hôm nay');
     expect(n.find((x) => x.type === 'DIGEST')?.body).toContain('1 việc QUÁ HẠN');
 
     const s2 = await runReminders();
@@ -336,7 +336,7 @@ describe('giao bổ sung: nhiều người cùng thực hiện một mốc', () 
     m = d.milestones[0];
     expect([m.status, m.percent, m.doneManually]).toEqual(['DONE', 100, false]);
     expect(d.progress).toBe(100);
-    expect((await inbox(depA.id)).some((n) => n.title.includes('(2/2)'))).toBe(true);
+    expect((await inbox(depA.id)).some((n) => n.title.includes('(2/2 người)'))).toBe(true);
 
     // NV mở lại phần của mình → mốc mở lại
     await as(staffA2).patch(`/api/milestones/${mid}/progress`, { status: 'IN_PROGRESS', percent: 60 });
@@ -371,8 +371,8 @@ describe('giao bổ sung: nhiều người cùng thực hiện một mốc', () 
     const m0 = t.body.milestones[0];
     expect(m0.assignee).toBeNull();
     expect(m0.members.map((x: { user: { id: number } }) => x.user.id).sort()).toEqual([staffA.id, staffB.id].sort());
-    expect((await inbox(depA.id)).some((n) => n.title.includes('giao trực tiếp cho nhân viên nhóm bạn'))).toBe(true);
-    expect((await inbox(depB.id)).some((n) => n.title.includes('giao trực tiếp cho nhân viên nhóm bạn'))).toBe(true);
+    expect((await inbox(depA.id)).some((n) => n.title === 'Nhân viên nhóm bạn được giao việc')).toBe(true);
+    expect((await inbox(depB.id)).some((n) => n.title === 'Nhân viên nhóm bạn được giao việc')).toBe(true);
     expect((await as(depA).get(`/api/tasks/${t.body.id}`)).status).toBe(200);
     expect(await prisma.crossGroupAssignment.count()).toBe(0); // TP không bị tính "ngoài nhóm"
 

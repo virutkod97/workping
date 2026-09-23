@@ -106,8 +106,9 @@ describe('Web Push (PWA)', () => {
     expect(r.headers.urgency).toBe('high');
     expect(String(r.headers.authorization)).toMatch(/^vapid t=.+, k=/);
     const msg = decrypt(r.body, k);
-    expect(msg).toMatchObject({ title: 'Việc mới được giao: CV001', url: `/tasks/${t.body.id}`, badge: 1 });
-    expect(msg.body).toContain('Rà soát hồ sơ');
+    expect(msg).toMatchObject({ title: 'Công việc mới', url: `/tasks/${t.body.id}`, badge: 1 });
+    // Dòng 1: tên công việc · Dòng 2: người giao — hạn
+    expect(msg.body).toBe(`Rà soát hồ sơ\nUser NS001 giao — hạn ${day(5).split('-').reverse().join('/')}`);
   });
 
   it('dịch vụ push trả 410 (đã gỡ app / thu hồi quyền) → tự xoá đăng ký', async () => {
@@ -144,7 +145,7 @@ describe('Web Push (PWA)', () => {
     await waitFor(1);
     await new Promise((r) => setTimeout(r, 300));
     // Đúng 1 thông báo (trước đây nhận 2 cái trùng nhau)
-    expect(received.map((r) => decrypt(r.body, k).title)).toEqual(['Việc mới được giao: CV001']);
+    expect(received.map((r) => decrypt(r.body, k).title)).toEqual(['Công việc mới']);
 
     // 2. Phó phòng giao bổ sung mốc cho nhân viên
     received.length = 0;
@@ -152,7 +153,10 @@ describe('Web Push (PWA)', () => {
     const add = await as(depA).post(`/api/milestones/${t.body.milestones[0].id}/members`, { userIds: [staffA.id] });
     expect(add.status).toBe(200);
     await waitFor(1);
-    expect(received.map((r) => decrypt(r.body, k).title)).toContain('Được giao việc CV002');
+    const m2 = received.map((r) => decrypt(r.body, k));
+    expect(m2.map((x) => x.title)).toContain('Công việc mới');
+    // Mốc mặc định trùng tên công việc → không lặp lại tên
+    expect(m2.map((x) => x.body)).toContain('Báo cáo\nUser NS002 giao');
   });
 
   it('quản trị: xem thiết bị, gửi thử từng người, lưu lý do lỗi', async () => {
@@ -306,5 +310,23 @@ describe('Web Push (PWA)', () => {
     const after = await as(head).get('/api/push/admin/devices');
     expect(after.body.find((u: { id: number }) => u.id === staffA.id).devices.map((d: { keyOk: boolean }) => d.keyOk)).toEqual([true]);
     expect((await as(head).post('/api/push/admin/test', { userId: staffA.id })).body.sent).toBe(1);
+  });
+
+  it('nội dung thông báo giao việc: tiêu đề / tên công việc / người giao: tên mốc — hạn', async () => {
+    const { head, depA } = await org();
+    const k = browserKeys();
+    await as(depA).post('/api/push/subscribe', { subscription: { endpoint: `${base}/push/fmt`, keys: k.keys } });
+    await as(head).post('/api/tasks', {
+      title: 'Kiểm tra điện lực Ninh Bình',
+      ownerId: depA.id,
+      milestones: [{ content: 'Kiểm tra hiện trường', weight: 1, dueDate: '2026-09-30', assigneeId: depA.id }],
+    });
+    await waitFor(1);
+    await new Promise((r) => setTimeout(r, 200));
+    const msgs = received.map((r) => decrypt(r.body, k));
+    // Người phụ trách cũng chủ trì mốc → đúng 1 thông báo, có đủ tên mốc & hạn
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].title).toBe('Công việc mới');
+    expect(msgs[0].body).toBe('Kiểm tra điện lực Ninh Bình\nUser NS001 giao: Kiểm tra hiện trường — hạn 30/09/2026');
   });
 });

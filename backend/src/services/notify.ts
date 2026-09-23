@@ -13,6 +13,38 @@ export interface NotifyInput {
   dedupeKey?: string;
 }
 
+/** dd/mm/yyyy (ngày lưu dạng UTC 00:00 hoặc chuỗi YYYY-MM-DD) */
+export function ddmmyyyy(d: Date | string | null | undefined): string {
+  if (!d) return '';
+  const s = typeof d === 'string' ? d : d.toISOString();
+  const [y, m, day] = s.slice(0, 10).split('-');
+  return `${day}/${m}/${y}`;
+}
+
+/**
+ * Nội dung thông báo 2 dòng (hiển thị trên điện thoại/máy tính dưới tiêu đề):
+ *   Dòng 1: tên công việc
+ *   Dòng 2: <người giao> giao[ cho <người nhận>]: <tên mốc> — hạn dd/mm/yyyy
+ * Mốc trùng tên công việc (việc không chia mốc) thì không lặp lại.
+ */
+export function taskLines(o: {
+  taskTitle: string;
+  giver?: string | null;
+  to?: string | null;
+  part?: string | null;
+  due?: Date | string | null;
+  extra?: string | null;
+  /** Thay cho phần "<người> giao" (vd "Nguyễn A cập nhật") */
+  action?: string | null;
+}): string {
+  const part = o.part && o.part.trim() !== o.taskTitle.trim() ? o.part : null;
+  const who = o.action ?? (o.giver ? `${o.giver} giao${o.to ? ` cho ${o.to}` : ''}` : o.to ? `Giao cho ${o.to}` : null);
+  let line2 = [who, part].filter(Boolean).join(': ');
+  if (o.due) line2 += `${line2 ? ' — ' : ''}hạn ${ddmmyyyy(o.due)}`;
+  if (o.extra) line2 += `${line2 ? ' · ' : ''}${o.extra}`;
+  return line2 ? `${o.taskTitle}\n${line2}` : o.taskTitle;
+}
+
 /** Lưu thông báo vào hộp thư trong app và gửi push. Trả về false nếu bị trùng. */
 export async function notify(n: NotifyInput): Promise<boolean> {
   try {
