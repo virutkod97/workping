@@ -8,13 +8,14 @@ import { useCategories, useUsers } from '../hooks';
 import type { Role, User } from '../types';
 import { ROLE_LABEL } from '../types';
 import { roleFromTitle, TITLE_OPTIONS } from '../roles';
+import { passwordRules, showTempPassword } from '../password';
 
 const ROLE_COLOR: Record<Role, string> = { ADMIN: 'magenta', HEAD: 'red', DEPUTY: 'orange', STAFF: 'blue' };
 
 /** Quản lý nhân sự — thay DANH_MUC cột E:J, thêm sơ đồ 3 cấp */
 export default function Staff() {
   const { isManager, user: me } = useAuth();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const qc = useQueryClient();
   const [status, setStatus] = useState<'ACTIVE' | 'ALL'>('ACTIVE');
   const [view, setView] = useState<'list' | 'tree'>('list');
@@ -30,8 +31,11 @@ export default function Staff() {
     onError: (e: Error) => message.error(e.message),
   });
   const reset = useMutation({
-    mutationFn: (id: number) => api.post(`/users/${id}/reset-password`),
-    onSuccess: () => message.success('Đã đặt lại mật khẩu mặc định'),
+    mutationFn: (u: User) => api.post<{ tempPassword: string }>(`/users/${u.id}/reset-password`),
+    onSuccess: (r, u) => {
+      showTempPassword(modal, u.fullName, u.username, r.tempPassword);
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
     onError: (e: Error) => message.error(e.message),
   });
 
@@ -81,7 +85,20 @@ export default function Staff() {
               { title: 'Nhóm / quản lý trực tiếp', dataIndex: ['manager', 'fullName'], width: 170 },
               { title: 'Điện thoại', dataIndex: 'phone', width: 110 },
               { title: 'Email', dataIndex: 'email', width: 180, ellipsis: true },
-              ...(isManager ? [{ title: 'Tài khoản', dataIndex: 'username', width: 100 }] : []),
+              ...(isManager
+                ? [
+                    {
+                      title: 'Tài khoản',
+                      dataIndex: 'username',
+                      width: 130,
+                      render: (v: string, u: User) => (
+                        <span>
+                          {v} {u.mustChangePassword && u.status === 'ACTIVE' && <Tag color="orange" title="Đang dùng mật khẩu tạm — chưa đăng nhập đổi mật khẩu">MK tạm</Tag>}
+                        </span>
+                      ),
+                    },
+                  ]
+                : []),
               { title: 'Trạng thái', dataIndex: 'status', width: 120, render: (s: string) => (s === 'ACTIVE' ? <Tag color="green">Đang công tác</Tag> : <Tag>Nghỉ</Tag>) },
               ...(isManager
                 ? [
@@ -92,7 +109,11 @@ export default function Staff() {
                       render: (_: unknown, u: User) => (
                         <Space size={4}>
                           <Button size="small" icon={<EditOutlined />} onClick={() => setEdit({ open: true, u })} />
-                          <Popconfirm title={`Đặt lại mật khẩu mặc định cho ${u.fullName}?`} onConfirm={() => reset.mutate(u.id)}>
+                          <Popconfirm
+                            title={`Đặt lại mật khẩu cho ${u.fullName}?`}
+                            description="Hệ thống tạo mật khẩu tạm mới; các thiết bị đang đăng nhập sẽ bị đăng xuất."
+                            onConfirm={() => reset.mutate(u)}
+                          >
                             <Button size="small" icon={<KeyOutlined />} />
                           </Popconfirm>
                           {u.status === 'ACTIVE' && u.id !== me?.id && (
@@ -116,7 +137,7 @@ export default function Staff() {
 
 function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: User | null; users: User[]; onClose: () => void }) {
   const [form] = Form.useForm();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const qc = useQueryClient();
   const { user: me } = useAuth();
   const { data: cats = [] } = useCategories();
@@ -133,10 +154,11 @@ function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: U
   const save = useMutation({
     mutationFn: (v: Record<string, unknown>) => {
       const body = { ...v, managerId: v.managerId ?? null, password: v.password || undefined };
-      return user ? api.put(`/users/${user.id}`, body) : api.post('/users', body);
+      return user ? api.put<User>(`/users/${user.id}`, body) : api.post<User & { tempPassword?: string }>('/users', body);
     },
-    onSuccess: () => {
-      message.success(user ? 'Đã cập nhật' : 'Đã thêm nhân sự (mật khẩu mặc định nếu để trống)');
+    onSuccess: (r: User & { tempPassword?: string }) => {
+      message.success(user ? 'Đã cập nhật' : 'Đã thêm nhân sự');
+      if (r.tempPassword) showTempPassword(modal, r.fullName, r.username, r.tempPassword);
       qc.invalidateQueries();
       onClose();
     },
@@ -228,7 +250,13 @@ function UserFormModal({ open, user, users, onClose }: { open: boolean; user?: U
           <Form.Item name="username" label="Tên đăng nhập" style={{ flex: 1, minWidth: 160 }} tooltip="Bỏ trống = mã NS viết thường">
             <Input />
           </Form.Item>
-          <Form.Item name="password" label={user ? 'Mật khẩu mới' : 'Mật khẩu'} style={{ flex: 1, minWidth: 160 }} tooltip="Bỏ trống = mật khẩu mặc định">
+          <Form.Item
+            name="password"
+            label={user ? 'Mật khẩu mới' : 'Mật khẩu'}
+            style={{ flex: 1, minWidth: 160 }}
+            tooltip={user ? 'Bỏ trống = giữ nguyên' : 'Bỏ trống = hệ thống tạo mật khẩu tạm ngẫu nhiên'}
+            rules={passwordRules(false)}
+          >
             <Input.Password autoComplete="new-password" />
           </Form.Item>
           {user && (

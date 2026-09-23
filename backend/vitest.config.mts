@@ -12,6 +12,8 @@ export default defineConfig({
       TZ_NAME: 'Asia/Ho_Chi_Minh',
       WARN_DAYS: '3',
       REMIND_DAYS: '3,1,0',
+      // push.test dùng dịch vụ push giả trên 127.0.0.1
+      PUSH_ALLOW_ANY_ENDPOINT: '1',
     },
   },
 });

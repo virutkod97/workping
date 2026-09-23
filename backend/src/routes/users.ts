@@ -7,7 +7,7 @@ import { me, requireRole } from '../lib/auth';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { idParam, parse } from '../lib/validate';
 import { assignableIds, groupLeadOf, isManagerRole, subordinateIds } from '../lib/permissions';
-import { config } from '../config';
+import { passwordRule, tempPassword } from './auth';
 import { nextUserCode } from '../services/codes';
 import { effectiveRole } from '../lib/roles';
 
@@ -25,8 +25,15 @@ const listSelect = {
   username: true,
   status: true,
   managerId: true,
+  mustChangePassword: true,
   manager: { select: { id: true, fullName: true } },
 } as const;
+
+/** Nhân viên / Phó phòng chỉ thấy tên đăng nhập & trạng thái mật khẩu của chính mình */
+function redact<T extends { id: number; username?: string; mustChangePassword?: boolean }>(viewer: { id: number; role: string }, x: T): T {
+  if (viewer.role === 'ADMIN' || viewer.role === 'HEAD' || x.id === viewer.id) return x;
+  return { ...x, username: undefined, mustChangePassword: undefined };
+}
 
 const roleEnum = z.enum(['ADMIN', 'HEAD', 'DEPUTY', 'STAFF']);
 const userBody = z.object({
@@ -38,7 +45,7 @@ const userBody = z.object({
   phone: z.string().trim().nullable().optional(),
   email: z.string().trim().email('email không hợp lệ').nullable().optional().or(z.literal('')),
   username: z.string().trim().min(3).optional(),
-  password: z.string().min(6).optional(),
+  password: passwordRule.optional().or(z.literal('')),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   managerId: z.number().int().positive().nullable().optional(),
 });
@@ -72,7 +79,7 @@ usersRouter.get('/', async (req, res) => {
   const users = await prisma.user.findMany({ where, select: listSelect, orderBy: [{ code: 'asc' }] });
   // Nhân viên thường không cần xem username của người khác
   const u = me(req);
-  res.json(isManagerRole(u) ? users : users.map((x) => ({ ...x, username: x.id === u.id ? x.username : undefined })));
+  res.json(users.map((x) => redact(u, x)));
 });
 
 /**
@@ -107,7 +114,7 @@ usersRouter.get('/:id', async (req, res) => {
     select: { ...listSelect, subordinates: { select: { id: true, fullName: true, code: true, role: true } } },
   });
   if (!user) throw notFound();
-  res.json(user);
+  res.json(redact(me(req), user));
 });
 
 usersRouter.post('/', requireRole('ADMIN', 'HEAD'), async (req, res) => {
@@ -120,6 +127,7 @@ usersRouter.post('/', requireRole('ADMIN', 'HEAD'), async (req, res) => {
   if (await prisma.user.findFirst({ where: { OR: [{ code }, { username }] } })) {
     throw badRequest('Mã nhân sự hoặc tên đăng nhập đã tồn tại');
   }
+  const initialPassword = body.password || tempPassword();
   const user = await prisma.user.create({
     data: {
       code,
@@ -132,12 +140,13 @@ usersRouter.post('/', requireRole('ADMIN', 'HEAD'), async (req, res) => {
       email: body.email || null,
       status: body.status ?? 'ACTIVE',
       managerId: body.managerId ?? null,
-      passwordHash: await bcrypt.hash(body.password || config.defaultPassword, 10),
+      passwordHash: await bcrypt.hash(initialPassword, 10),
       mustChangePassword: true,
     },
     select: listSelect,
   });
-  res.status(201).json(user);
+  // Mật khẩu tạm chỉ trả về 1 lần để người tạo chuyển cho nhân sự
+  res.status(201).json({ ...user, tempPassword: body.password ? undefined : initialPassword });
 });
 
 usersRouter.put('/:id', async (req, res) => {
@@ -187,7 +196,7 @@ usersRouter.put('/:id', async (req, res) => {
       email: body.email === '' ? null : body.email,
       status: body.status,
       managerId: body.managerId,
-      ...(body.password ? { passwordHash: await bcrypt.hash(body.password, 10), mustChangePassword: true } : {}),
+      ...(body.password ? { passwordHash: await bcrypt.hash(body.password, 10), mustChangePassword: true, tokenVersion: { increment: 1 } } : {}),
     },
     select: listSelect,
   });
@@ -206,12 +215,13 @@ async function ensureNotAdminTarget(actorRole: string, id: number) {
 usersRouter.post('/:id/reset-password', requireRole('ADMIN', 'HEAD'), async (req, res) => {
   const id = parse(idParam, req.params.id);
   await ensureNotAdminTarget(me(req).role, id);
-  const body = parse(z.object({ password: z.string().min(6).optional() }), req.body ?? {});
+  const body = parse(z.object({ password: passwordRule.optional() }), req.body ?? {});
+  const password = body.password || tempPassword();
   await prisma.user.update({
     where: { id },
-    data: { passwordHash: await bcrypt.hash(body.password || config.defaultPassword, 10), mustChangePassword: true },
+    data: { passwordHash: await bcrypt.hash(password, 10), mustChangePassword: true, tokenVersion: { increment: 1 } },
   });
-  res.json({ ok: true });
+  res.json({ ok: true, tempPassword: body.password ? undefined : password });
 });
 
 /** Ngừng hoạt động (giữ lại lịch sử công việc) */

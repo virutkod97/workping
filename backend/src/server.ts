@@ -7,7 +7,7 @@ if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process
   process.exit(1);
 }
 
-createApp().listen(config.port, () => {
-  console.log(`WorkPing API chạy tại http://localhost:${config.port}/api`);
+createApp().listen(config.port, config.host, () => {
+  console.log(`WorkPing API chạy tại http://${config.host}:${config.port}/api`);
   startScheduler();
 });

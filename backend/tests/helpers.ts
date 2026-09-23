@@ -18,7 +18,7 @@ export async function resetDb() {
 const hash = bcrypt.hashSync('secret123', 4);
 export async function mkUser(code: string, role: Role, managerId?: number, team?: string) {
   const u = await prisma.user.create({
-    data: { code, username: code.toLowerCase(), fullName: `User ${code}`, role, managerId, team, passwordHash: hash },
+    data: { code, username: code.toLowerCase(), fullName: `User ${code}`, role, managerId, team, passwordHash: hash, mustChangePassword: false },
   });
   return { ...u, token: signToken(u.id) };
 }

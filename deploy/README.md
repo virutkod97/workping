@@ -117,7 +117,7 @@ Mất khoảng 3–5 phút. Cuối cùng script in ra:
 1. Mở địa chỉ web, đăng nhập `admin` với mật khẩu ở trên → hệ thống bắt đổi mật khẩu.
 2. **Cấu hình** → kiểm tra danh mục *Nhóm công việc* và *Bộ phận*.
 3. **Nhân sự → Thêm nhân sự**: tạo lần lượt Trưởng phòng → các Phó trưởng phòng → nhân viên. Chọn **Chức danh** (Cấp tự đặt theo: *Trưởng phòng*, *Phó trưởng phòng* hoặc *Nhân viên*) và với nhân viên chọn **Nhóm / quản lý trực tiếp** = Phó trưởng phòng phụ trách. Kiểm tra ở *Sơ đồ nhóm*.
-4. Báo cho mọi người: đăng nhập bằng **mã nhân sự viết thường** (vd `ns002`), mật khẩu mặc định `123456`, lần đầu phải đổi.
+4. Báo cho mọi người: đăng nhập bằng **mã nhân sự viết thường** (vd `ns002`), mật khẩu tạm do hệ thống sinh (hiện ra **một lần** khi tạo nhân sự hoặc bấm 🔑 đặt lại mật khẩu), lần đầu đăng nhập bắt buộc đổi.
 5. **Cài lên điện thoại** (mỗi người tự làm, không cần tài khoản nhà phát triển):
    - **iPhone** (iOS 16.4+): mở `https://workping.congty.vn` bằng **Safari** → nút **Chia sẻ** → **Thêm vào MH chính** → mở WorkPing **từ biểu tượng** → đăng nhập → **Cài app & thông báo** → **Bật thông báo** → *Cho phép*.
    - **Android**: mở bằng **Chrome** → menu **⋮** → **Thêm vào màn hình chính** (hoặc nút *Cài ứng dụng*) → đăng nhập → **Cài app & thông báo** → **Bật thông báo** → *Cho phép*.
@@ -142,7 +142,6 @@ Các cấu hình hay chỉnh trong `workping.env`:
 REMINDER_CRON="0 8 * * 1-6"   # giờ gửi nhắc việc (phút giờ ngày tháng thứ) — đặt trong ngoặc kép
 WARN_DAYS=3                   # còn ≤ N ngày thì báo "Sắp đến hạn"
 REMIND_DAYS=3,1,0             # nhắc riêng từng mốc khi còn 3, 1, 0 ngày
-DEFAULT_PASSWORD=123456       # mật khẩu khi tạo nhân sự mới / đặt lại
 ```
 
 
@@ -166,6 +165,21 @@ Nâng cấp **giữ nguyên** dữ liệu, mật khẩu và toàn bộ cấu hì
 ls -t /var/backups/workping/                 # chọn bản cần khôi phục
 sudo bash deploy/restore.sh /var/backups/workping/workping-20260923-010000.dump
 ```
+
+## Bảo mật khi public ra Internet
+
+Những gì hệ thống đã tự làm:
+- Sai mật khẩu 5 lần thì khoá tài khoản đó 15 phút. Một IP sai 20 lần thì chặn IP đó 15 phút.
+- Không còn mật khẩu mặc định chung. Tạo nhân sự hoặc đặt lại mật khẩu (nút 🔑) sẽ sinh mật khẩu tạm ngẫu nhiên, chỉ hiện **một lần**. Người dùng phải đổi mật khẩu trước khi dùng được các chức năng khác.
+- Mật khẩu mới tối thiểu 8 ký tự, có cả chữ và số. Đổi hoặc đặt lại mật khẩu sẽ đăng xuất mọi thiết bị khác.
+- API chỉ nghe trên `127.0.0.1`, người dùng chỉ vào được qua nginx HTTPS.
+- Có header bảo mật (CSP, HSTS, chống nhúng iframe) và nginx ẩn số phiên bản.
+
+Việc quản trị cần làm:
+1. Vào **Nhân sự**, xem cột *Tài khoản*. Ai có nhãn **MK tạm** là chưa đổi mật khẩu lần đầu, bấm 🔑 để cấp mật khẩu tạm mới rồi chuyển riêng cho họ.
+2. Sau khi admin đã đổi mật khẩu: `sudo rm /etc/workping/admin-credentials.txt`.
+3. Chỉ NAT cổng HTTPS (VD 8888). **Không** NAT cổng 22 (SSH), 5432 (PostgreSQL), 4000 (API).
+4. Xem ai đăng nhập sai: `sudo journalctl -u workping | grep "đăng nhập sai"`.
 
 ## Xử lý sự cố
 

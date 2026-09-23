@@ -7,6 +7,12 @@ function num(v: string | undefined, d: number) {
 
 export const config = {
   port: num(process.env.PORT, 4000),
+  // Địa chỉ lắng nghe: sau nginx nên để 127.0.0.1 (không lộ cổng API ra mạng)
+  host: process.env.HOST || '0.0.0.0',
+  // Chỉ đặt khi web chạy ở tên miền khác API, vd https://a.congty.vn,https://b.congty.vn
+  corsOrigin: process.env.CORS_ORIGIN || '',
+  // Cho phép gửi push tới địa chỉ bất kỳ (chỉ dùng khi kiểm thử)
+  pushAllowAnyEndpoint: process.env.PUSH_ALLOW_ANY_ENDPOINT === '1',
   jwtSecret: process.env.JWT_SECRET || 'dev-secret',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '30d',
   tz: process.env.TZ_NAME || 'Asia/Ho_Chi_Minh',
@@ -16,7 +22,6 @@ export const config = {
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isFinite(n)),
   reminderCron: process.env.REMINDER_CRON || '0 8 * * 1-6',
-  defaultPassword: process.env.DEFAULT_PASSWORD || '123456',
   // Web Push (VAPID). Để trống → hệ thống tự sinh và lưu trong CSDL.
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',

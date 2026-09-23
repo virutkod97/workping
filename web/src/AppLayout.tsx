@@ -18,7 +18,8 @@ import { PushBanner } from './components/PushSetup';
 import { CertBanner } from './components/CertBanner';
 import { Logo } from './components/Logo';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { api } from './api';
+import { api, tokenStore } from './api';
+import { passwordRules } from './password';
 import { useAuth } from './auth';
 import { ROLE_LABEL } from './types';
 
@@ -134,7 +135,7 @@ export default function AppLayout() {
         </Layout.Content>
         {!screens.md && <BottomNav unread={unread?.count ?? 0} />}
       </Layout>
-      <ChangePasswordModal open={pwOpen || !!user?.mustChangePassword} forced={!!user?.mustChangePassword} onClose={() => { setPwOpen(false); void refresh(); }} />
+      <ChangePasswordModal open={pwOpen || !!user?.mustChangePassword} forced={!!user?.mustChangePassword} onClose={() => { setPwOpen(false); void refresh().then(() => qc.invalidateQueries()); }} />
     </Layout>
   );
 }
@@ -145,7 +146,7 @@ function ChangePasswordModal({ open, forced, onClose }: { open: boolean; forced:
   const [loading, setLoading] = useState(false);
   return (
     <Modal
-      title={forced ? 'Vui lòng đổi mật khẩu mặc định' : 'Đổi mật khẩu'}
+      title={forced ? 'Vui lòng đổi mật khẩu trước khi sử dụng' : 'Đổi mật khẩu'}
       open={open}
       onOk={() => form.submit()}
       onCancel={forced ? undefined : onClose}
@@ -161,7 +162,9 @@ function ChangePasswordModal({ open, forced, onClose }: { open: boolean; forced:
         onFinish={async (v) => {
           setLoading(true);
           try {
-            await api.post('/auth/change-password', { oldPassword: v.oldPassword, newPassword: v.newPassword });
+            const r = await api.post<{ token: string }>('/auth/change-password', { oldPassword: v.oldPassword, newPassword: v.newPassword });
+            // Các thiết bị khác bị đăng xuất; thiết bị này dùng token mới
+            tokenStore.set(r.token);
             message.success('Đã đổi mật khẩu');
             onClose();
           } catch (e) {
@@ -174,7 +177,7 @@ function ChangePasswordModal({ open, forced, onClose }: { open: boolean; forced:
         <Form.Item name="oldPassword" label="Mật khẩu hiện tại" rules={[{ required: true }]}>
           <Input.Password />
         </Form.Item>
-        <Form.Item name="newPassword" label="Mật khẩu mới" rules={[{ required: true, min: 6, message: 'Tối thiểu 6 ký tự' }]}>
+        <Form.Item name="newPassword" label="Mật khẩu mới" extra="Tối thiểu 8 ký tự, có cả chữ và số" rules={passwordRules(true)}>
           <Input.Password />
         </Form.Item>
         <Form.Item

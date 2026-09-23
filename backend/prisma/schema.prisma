@@ -51,6 +51,8 @@ model User {
   status             UserStatus @default(ACTIVE)
   username           String     @unique
   passwordHash       String
+  /// Tăng khi đổi/đặt lại mật khẩu → mọi phiên đăng nhập cũ hết hiệu lực
+  tokenVersion       Int        @default(0)
   mustChangePassword Boolean    @default(true)
   managerId          Int?
   manager            User?      @relation("Reporting", fields: [managerId], references: [id], onDelete: SetNull)

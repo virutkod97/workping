@@ -5,7 +5,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { Prisma } from '@prisma/client';
 import { HttpError } from './lib/errors';
-import { requireAuth, requireRole } from './lib/auth';
+import { requireAuth, requirePasswordChanged, requireRole } from './lib/auth';
+import { config } from './config';
 import { authRouter } from './routes/auth';
 import { usersRouter } from './routes/users';
 import { milestonesRouter, tasksRouter } from './routes/tasks';
@@ -20,20 +21,48 @@ import { me } from './lib/auth';
 
 export function createApp() {
   const app = express();
-  app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(cors());
-  app.use(express.json({ limit: '2mb' }));
+  // Sau nginx trên cùng máy: lấy IP thật của người dùng từ X-Forwarded-For (dùng cho chống dò mật khẩu)
+  app.set('trust proxy', 'loopback');
+  app.disable('x-powered-by');
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          // antd sinh CSS lúc chạy
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+          fontSrc: ["'self'", 'data:'],
+          connectSrc: ["'self'"],
+          workerSrc: ["'self'"],
+          manifestSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          formAction: ["'self'"],
+          frameAncestors: ["'none'"],
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
+  // Web & API chạy chung 1 địa chỉ → không cần CORS; chỉ bật khi chỉ định rõ nguồn khác
+  if (config.corsOrigin) app.use(cors({ origin: config.corsOrigin.split(',').map((s) => s.trim()) }));
+  app.use(express.json({ limit: '200kb' }));
 
   const api = express.Router();
   api.get('/health', (_req, res) => void res.json({ ok: true }));
   api.use('/auth', authRouter);
   api.use(requireAuth);
+  api.use('/push', pushRouter);
+  // Đang dùng mật khẩu tạm → chưa được dùng các chức năng khác
+  api.use(requirePasswordChanged);
   api.use('/users', usersRouter);
   api.use('/tasks', tasksRouter);
   api.use('/milestones', milestonesRouter);
   api.use('/dashboard', dashboardRouter);
   api.use('/notifications', notificationsRouter);
-  api.use('/push', pushRouter);
   api.use('/categories', categoriesRouter);
   api.use('/excel', excelRouter);
   api.use('/reports', reportsRouter);

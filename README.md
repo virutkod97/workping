@@ -107,7 +107,7 @@ npm install
 npm run dev                   # http://localhost:5173
 ```
 
-Đăng nhập: `admin / admin@123` → vào **Nhân sự** tạo tài khoản Trưởng phòng, Phó trưởng phòng, nhân viên (chọn *Nhóm / quản lý trực tiếp*). Nhân sự đăng nhập bằng mã nhân sự viết thường (vd `ns001`), mật khẩu mặc định `123456`, lần đầu bắt buộc đổi.
+Đăng nhập: `admin / admin@123` → vào **Nhân sự** tạo tài khoản Trưởng phòng, Phó trưởng phòng, nhân viên (chọn *Nhóm / quản lý trực tiếp*). Nhân sự đăng nhập bằng mã nhân sự viết thường (vd `ns001`), mật khẩu tạm ngẫu nhiên hiện ra một lần khi tạo/đặt lại, lần đầu bắt buộc đổi.
 
 Kiểm thử backend: `cd backend && npm test` (cần DB `workping_test`, xem `backend/vitest.config.mts`).
 

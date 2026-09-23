@@ -45,9 +45,28 @@ export interface PushPayload {
   badge?: number;
 }
 
+/**
+ * Chỉ nhận địa chỉ của dịch vụ push chính thức (Apple, Google, Mozilla, Microsoft).
+ * Không kiểm tra → kẻ xấu đăng ký địa chỉ nội bộ và dùng máy chủ để gửi request vào mạng nội bộ (SSRF).
+ */
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^([a-z0-9-]+\.)*push\.apple\.com$/, /^([a-z0-9-]+\.)*push\.services\.mozilla\.com$/, /^([a-z0-9-]+\.)*notify\.windows\.com$/];
+export function isAllowedPushEndpoint(raw: string): boolean {
+  if (config.pushAllowAnyEndpoint) return true;
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'https:' && !u.port && PUSH_HOSTS.some((re) => re.test(u.hostname));
+  } catch {
+    return false;
+  }
+}
+
 /** Gửi tới mọi trình duyệt/thiết bị user đã bật thông báo. Trả về số lần gửi thành công. */
 export async function sendPushToUser(userId: number, p: PushPayload): Promise<number> {
-  const subs = await prisma.webPushSubscription.findMany({ where: { userId } });
+  const all = await prisma.webPushSubscription.findMany({ where: { userId } });
+  // Bỏ các đăng ký có địa chỉ lạ (vd tạo trước khi có kiểm tra)
+  const bad = all.filter((s) => !isAllowedPushEndpoint(s.endpoint));
+  if (bad.length) await prisma.webPushSubscription.deleteMany({ where: { id: { in: bad.map((s) => s.id) } } });
+  const subs = all.filter((s) => isAllowedPushEndpoint(s.endpoint));
   if (!subs.length) return 0;
   await getVapid();
   const payload = JSON.stringify(p);

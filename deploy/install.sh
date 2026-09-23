@@ -198,7 +198,6 @@ WARN_DAYS=3
 REMIND_DAYS=3,1,0
 # Giờ gửi nhắc việc (cron): 8h sáng thứ 2 – thứ 7
 REMINDER_CRON="0 8 * * 1-6"
-DEFAULT_PASSWORD=123456
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=$ADMIN_PASS
 WEB_DIST=$APP_DIR/web/dist
@@ -332,6 +331,8 @@ ENV_CHANGED=0
 set_env CERT_MODE "$TLS_MODE" && ENV_CHANGED=1
 set_env PUBLIC_DOMAIN "$DOMAIN" && ENV_CHANGED=1
 set_env HTTPS_PORT "$HTTPS_PORT" && ENV_CHANGED=1
+# Có nginx phía trước → API chỉ nghe trên 127.0.0.1, không lộ cổng $PORT ra mạng
+set_env HOST "$([[ $SKIP_NGINX == 1 ]] && echo 0.0.0.0 || echo 127.0.0.1)" && ENV_CHANGED=1
 if [[ $ENV_CHANGED == 1 ]]; then systemctl restart $APP_NAME 2>/dev/null || true; fi
 
 # ------------------------------ Kết quả ------------------------------

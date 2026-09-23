@@ -140,14 +140,17 @@ describe('quản lý nhân sự', () => {
     const c = await as(head).post('/api/users', { fullName: 'Nguyễn Văn Mới', title: 'Kỹ sư', role: 'STAFF', managerId: depA.id });
     expect(c.status).toBe(201);
     expect(c.body.code).toBe('NS006');
-    const login = await request(app).post('/api/auth/login').send({ username: 'ns006', password: '123456' });
+    // Không còn mật khẩu mặc định chung: hệ thống sinh mật khẩu tạm ngẫu nhiên
+    expect(c.body.tempPassword).toMatch(/^[A-Za-z0-9]{10}$/);
+    expect((await request(app).post('/api/auth/login').send({ username: 'ns006', password: '123456' })).status).toBe(401);
+    const login = await request(app).post('/api/auth/login').send({ username: 'ns006', password: c.body.tempPassword });
     expect(login.status).toBe(200);
     expect(login.body.user.mustChangePassword).toBe(true);
 
     expect((await as(staffA).post('/api/users', { fullName: 'Hack' })).status).toBe(403);
     expect((await as(head).put(`/api/users/${depA.id}`, { managerId: staffA.id })).status).toBe(400);
     expect((await as(head).delete(`/api/users/${c.body.id}`)).status).toBe(200);
-    const again = await request(app).post('/api/auth/login').send({ username: 'ns006', password: '123456' });
+    const again = await request(app).post('/api/auth/login').send({ username: 'ns006', password: c.body.tempPassword });
     expect(again.status).toBe(401);
   });
 });
@@ -288,7 +291,9 @@ describe('cấp theo chức danh khi tạo nhân sự trên web', () => {
     await as(head).put(`/api/users/${nv.body.id}`, { title: 'Chuyên viên', role: 'STAFF' });
 
     // Luồng giao việc: TP → PTP → giao tiếp xuống NV trong nhóm
-    const login = await request(app).post('/api/auth/login').send({ username: ptp.body.username, password: '123456' });
+    const first = await request(app).post('/api/auth/login').send({ username: ptp.body.username, password: ptp.body.tempPassword });
+    const cp = await as({ token: first.body.token }).post('/api/auth/change-password', { oldPassword: ptp.body.tempPassword, newPassword: 'MatKhau2026' });
+    const login = { body: { token: cp.body.token as string } };
     const t = await as(head).post('/api/tasks', { title: 'Báo cáo quý', ownerId: ptp.body.id });
     const mid = t.body.milestones[0].id;
     const d = await as({ token: login.body.token }).post(`/api/milestones/${mid}/members`, { userIds: [nv.body.id] });
