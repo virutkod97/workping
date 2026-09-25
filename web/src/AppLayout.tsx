@@ -24,12 +24,15 @@ import { passwordRules } from './password';
 import { useAuth } from './auth';
 import { ROLE_LABEL } from './types';
 
+const BRAND = '#1F4E78';
+
 export default function AppLayout() {
   const { user, logout, isManager, canAssign, refresh } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
   const screens = Grid.useBreakpoint();
   const [drawer, setDrawer] = useState(false);
+  const mobile = !screens.lg;
   const [pwOpen, setPwOpen] = useState(false);
   const qc = useQueryClient();
 
@@ -99,7 +102,9 @@ export default function AppLayout() {
       <Layout>
         <Layout.Header
           style={{
-            background: '#fff',
+            // Điện thoại: header cùng màu vùng thanh trạng thái → lớp làm mờ "Liquid Glass" của iOS 26+
+            // dưới thanh trạng thái hoà vào nền, không còn dải nhoè; ghim khi cuộn như app gốc
+            background: mobile ? BRAND : '#fff',
             padding: '0 16px',
             // Chừa chỗ cho thanh trạng thái iPhone (app mở từ Màn hình chính)
             paddingTop: 'var(--sat)',
@@ -107,13 +112,15 @@ export default function AppLayout() {
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            borderBottom: '1px solid #f0f0f0',
+            borderBottom: mobile ? 'none' : '1px solid #f0f0f0',
+            ...(mobile ? { position: 'sticky', top: 0, zIndex: 100 } : {}),
           }}
         >
-          {!screens.lg && <Button type="text" icon={<MenuOutlined />} onClick={() => setDrawer(true)} />}
+          {mobile && <Button type="text" icon={<MenuOutlined />} style={{ color: '#fff' }} onClick={() => setDrawer(true)} />}
+          {mobile && <Logo size={26} dark />}
           <div style={{ flex: 1 }} />
           <Badge count={unread?.count} size="small">
-            <Button type="text" icon={<BellOutlined />} onClick={() => nav('/notifications')} />
+            <Button type="text" icon={<BellOutlined />} style={mobile ? { color: '#fff' } : undefined} onClick={() => nav('/notifications')} />
           </Badge>
           <Dropdown
             menu={{
@@ -125,11 +132,13 @@ export default function AppLayout() {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <Avatar style={{ background: '#1f4e78' }}>{user?.fullName.split(' ').pop()?.[0]}</Avatar>
+              <Avatar style={mobile ? { background: '#fff', color: BRAND, fontWeight: 600 } : { background: BRAND }}>{user?.fullName.split(' ').pop()?.[0]}</Avatar>
               {screens.sm && (
-                <div style={{ lineHeight: 1.2 }}>
+                <div style={{ lineHeight: 1.2, color: mobile ? '#fff' : undefined }}>
                   <div style={{ fontWeight: 600 }}>{user?.fullName}</div>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>{user && ROLE_LABEL[user.role]}</Typography.Text>
+                  <Typography.Text type={mobile ? undefined : 'secondary'} style={{ fontSize: 12, color: mobile ? 'rgba(255,255,255,.75)' : undefined }}>
+                    {user && ROLE_LABEL[user.role]}
+                  </Typography.Text>
                 </div>
               )}
             </div>
