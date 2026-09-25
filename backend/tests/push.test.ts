@@ -358,4 +358,16 @@ describe('Web Push (PWA)', () => {
     await as(head).post('/api/push/admin/test', { userId: staffA.id });
     expect(received.map((x) => x.path)).toEqual(['/push/new-rotated']);
   });
+
+  it('quản trị xoá thiết bị đăng ký thông báo; nhân viên không được xoá', async () => {
+    const { head, staffA } = await org();
+    await as(staffA).post('/api/push/subscribe', { subscription: { endpoint: `${base}/push/del`, keys: browserKeys().keys }, userAgent: 'iPhone Safari' });
+    const dev = (await as(head).get('/api/push/admin/devices')).body.find((u: { id: number }) => u.id === staffA.id).devices[0];
+    expect((await as(staffA).delete(`/api/push/admin/devices/${dev.id}`)).status).toBe(403);
+    expect((await as(head).delete(`/api/push/admin/devices/${dev.id}`)).status).toBe(200);
+    expect((await as(head).delete(`/api/push/admin/devices/${dev.id}`)).status).toBe(404);
+    expect(await prisma.webPushSubscription.count()).toBe(0);
+    // Không còn thiết bị → không gửi gì
+    expect((await as(head).post('/api/push/admin/test', { userId: staffA.id })).body).toMatchObject({ devices: 0 });
+  });
 });

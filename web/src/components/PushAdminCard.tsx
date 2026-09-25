@@ -5,6 +5,7 @@ import {
   Card,
   Grid,
   List,
+  Popconfirm,
   Segmented,
   Space,
   Table,
@@ -15,6 +16,7 @@ import {
   ApiOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
+  DeleteOutlined,
   SendOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -73,11 +75,30 @@ const fmt = (s: string | null) =>
     : "";
 
 /** Trạng thái lần gửi gần nhất của 1 thiết bị */
-function DeviceLine({ d }: { d: Device }) {
+function DeviceLine({ d, owner }: { d: Device; owner: string }) {
+  const { message } = App.useApp();
+  const qc = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => api.delete(`/push/admin/devices/${d.id}`),
+    onSuccess: () => {
+      message.success(`Đã xoá thiết bị ${d.device} của ${owner}`);
+      qc.invalidateQueries({ queryKey: ["push-devices"] });
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
   const failed = d.lastErrorAt && (!d.lastOkAt || d.lastErrorAt > d.lastOkAt);
   return (
-    <div style={{ lineHeight: 1.5 }}>
+    <div style={{ lineHeight: 1.5, paddingBottom: 4 }}>
       <Tag>{d.device}</Tag>
+      <Popconfirm
+        title={`Xoá thiết bị ${d.device} của ${owner}?`}
+        description="Thiết bị ngừng nhận thông báo. Nếu người dùng mở lại WorkPing trên thiết bị đó khi vẫn cho phép thông báo, thiết bị sẽ tự đăng ký lại."
+        okText="Xoá"
+        okButtonProps={{ danger: true }}
+        onConfirm={() => del.mutate()}
+      >
+        <Button size="small" type="text" danger icon={<DeleteOutlined />} loading={del.isPending} title="Xoá thiết bị" />
+      </Popconfirm>
       {failed ? (
         <Typography.Text type="danger" style={{ fontSize: 12 }}>
           <CloseCircleFilled /> Lỗi {fmt(d.lastErrorAt)}: {d.lastError}
@@ -326,7 +347,7 @@ export function PushAdminCard() {
               </div>
               <div style={{ marginTop: 4 }}>
                 {u.devices.length ? (
-                  u.devices.map((d) => <DeviceLine key={d.id} d={d} />)
+                  u.devices.map((d) => <DeviceLine key={d.id} d={d} owner={u.fullName} />)
                 ) : (
                   <Tag>Chưa bật trên thiết bị nào</Tag>
                 )}
@@ -358,7 +379,7 @@ export function PushAdminCard() {
               title: "Thiết bị đã bật thông báo",
               render: (_, u) =>
                 u.devices.length ? (
-                  u.devices.map((d) => <DeviceLine key={d.id} d={d} />)
+                  u.devices.map((d) => <DeviceLine key={d.id} d={d} owner={u.fullName} />)
                 ) : (
                   <Tag color="default">Chưa bật trên thiết bị nào</Tag>
                 ),

@@ -1,6 +1,6 @@
 import { App, Button, Card, Form, Input, Typography } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Logo } from '../components/Logo';
@@ -11,8 +11,31 @@ export default function Login() {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
 
+  // Nền trang cùng màu xanh khi ở màn đăng nhập: vùng thanh trạng thái / kéo nảy trên iPhone không lộ nền xám
+  useEffect(() => {
+    const prev = document.body.style.background;
+    document.body.style.background = '#1F4E78';
+    return () => {
+      document.body.style.background = prev;
+    };
+  }, []);
+
   return (
-    <div style={{ minHeight: '100vh', boxSizing: 'border-box', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,#1f4e78,#2f75b5)', padding: 16, paddingTop: 'calc(16px + var(--sat))' }}>
+    <div
+      style={{
+        // Cố định toàn màn hình, cuộn bên trong (không nảy cả trang) — mép trên đúng màu xanh thương hiệu
+        position: 'fixed',
+        inset: 0,
+        overflowY: 'auto',
+        overscrollBehavior: 'none',
+        display: 'grid',
+        placeItems: 'center',
+        background: 'linear-gradient(180deg,#1F4E78 0%,#2f75b5 100%)',
+        padding: 16,
+        paddingTop: 'calc(16px + var(--sat))',
+        paddingBottom: 'calc(16px + var(--sab))',
+      }}
+    >
       <Card style={{ width: '100%', maxWidth: 380 }}>
         <div style={{ textAlign: 'center', margin: '4px 0 8px' }}>
           <Logo size={44} />

@@ -144,6 +144,16 @@ pushRouter.get('/admin/devices', ...adminOnly, async (_req, res) => {
   );
 });
 
+/** Xoá 1 thiết bị khỏi danh sách nhận thông báo (thiết bị cũ, đã đổi máy, đăng ký lỗi…) */
+pushRouter.delete('/admin/devices/:id', ...adminOnly, async (req, res) => {
+  const id = parse(idParam, req.params.id);
+  const sub = await prisma.webPushSubscription.findUnique({ where: { id }, include: { user: { select: { fullName: true } } } });
+  if (!sub) throw notFound('Không tìm thấy thiết bị');
+  await prisma.webPushSubscription.delete({ where: { id } });
+  console.log(`[push] ${me(req).fullName} xoá thiết bị ${deviceLabel(sub.userAgent, sub.endpoint)} của ${sub.user.fullName}`);
+  res.json({ ok: true });
+});
+
 /** Gửi thử tới mọi thiết bị của 1 nhân sự, trả về kết quả từng thiết bị */
 pushRouter.post('/admin/test', ...adminOnly, async (req, res) => {
   const { userId } = parse(z.object({ userId: z.number().int().positive() }), req.body);
