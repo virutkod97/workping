@@ -6,6 +6,7 @@ import { milestoneWarning, taskProgress, taskState } from '../lib/status';
 import { subordinateIds } from '../lib/permissions';
 import { notify, taskLines } from './notify';
 import { notifyCertExpiry } from './cert';
+import { measureClockSkew } from './push';
 
 /**
  * Chạy nhắc việc:
@@ -111,6 +112,14 @@ export async function runReminders(now: Date = new Date()) {
 
 export function startScheduler() {
   if (config.disableScheduler) return;
+  // Đo độ lệch đồng hồ máy chủ (qua header Date của Google) lúc khởi động và 30 phút/lần:
+  // token VAPID ký theo giờ đã bù → đồng hồ máy chủ trôi giữa các lần đồng bộ giờ vẫn không bị Apple từ chối
+  const skew = () =>
+    measureClockSkew()
+      .then((d) => d !== null && Math.abs(d) > 30_000 && console.warn(`[push] đồng hồ máy chủ lệch ${Math.round(d / 1000)} giây — đã tự bù khi ký token`))
+      .catch(() => undefined);
+  void skew();
+  setInterval(skew, 30 * 60_000).unref();
   if (!cron.validate(config.reminderCron)) {
     console.error(`[reminder] REMINDER_CRON không hợp lệ: ${config.reminderCron}`);
     return;

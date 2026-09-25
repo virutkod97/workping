@@ -3,7 +3,7 @@ import { BellOutlined, CheckCircleFilled, DownloadOutlined } from '@ant-design/i
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { PushSetupError, disablePush, enablePush, getPushState, isAndroid, isDesktop, isIOS, isStandalone, preloadPushKey, type PushState } from '../push';
+import { PushSetupError, disablePush, enablePush, pushNeedsFix, getPushState, isAndroid, isDesktop, isIOS, isStandalone, preloadPushKey, type PushState } from '../push';
 
 // Chrome/Edge Android: sự kiện cho phép hiện nút "Cài ứng dụng"
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
@@ -221,7 +221,45 @@ export function PushSetupCard() {
 const DISMISS_KEY = 'workping_push_banner_dismissed';
 
 /** Dải nhắc nhỏ ở đầu trang khi thiết bị chưa bật thông báo */
+/** Đăng ký thông báo trên máy này dùng khoá cũ → cần người dùng bấm để tạo lại (iPhone không cho làm ngầm) */
+function PushFixBanner() {
+  const { message, modal } = App.useApp();
+  const [busy, setBusy] = useState(false);
+  const fix = () => {
+    setBusy(true);
+    // Gọi ngay trong thao tác bấm (iOS yêu cầu)
+    enablePush()
+      .then((s) => (s === 'on' ? message.success('Đã sửa — thiết bị này nhận thông báo bình thường') : message.warning('Thông báo đang bị chặn trên thiết bị này')))
+      .catch((e) => showPushError(modal, e))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      icon={<BellOutlined />}
+      style={{ marginBottom: 12 }}
+      title="Thông báo trên thiết bị này cần đăng ký lại để tiếp tục nhận nhắc việc"
+      action={
+        <Button size="small" type="primary" loading={busy} onClick={fix}>
+          Sửa ngay
+        </Button>
+      }
+    />
+  );
+}
+
 export function PushBanner() {
+  const [needFix, setNeedFix] = useState(pushNeedsFix);
+  useEffect(() => {
+    const f = () => setNeedFix(pushNeedsFix());
+    window.addEventListener('workping-push-fix', f);
+    return () => window.removeEventListener('workping-push-fix', f);
+  }, []);
+  return needFix ? <PushFixBanner /> : <PushInfoBanner />;
+}
+
+function PushInfoBanner() {
   const { state } = usePushState();
   const [hidden, setHidden] = useState(() => {
     try {

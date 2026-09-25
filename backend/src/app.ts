@@ -11,7 +11,7 @@ import { authRouter } from './routes/auth';
 import { usersRouter } from './routes/users';
 import { milestonesRouter, tasksRouter } from './routes/tasks';
 import { dashboardRouter } from './routes/dashboard';
-import { notificationsRouter, pushRouter } from './routes/notifications';
+import { notificationsRouter, pushPublicRouter, pushRouter } from './routes/notifications';
 import { categoriesRouter } from './routes/categories';
 import { excelRouter } from './routes/excel';
 import { reportsRouter } from './routes/reports';
@@ -60,6 +60,7 @@ export function createApp() {
     res.json({ publicUrl });
   });
   api.use('/auth', authRouter);
+  api.use('/push-public', pushPublicRouter);
   api.use(requireAuth);
   api.use('/push', pushRouter);
   // Đang dùng mật khẩu tạm → chưa được dùng các chức năng khác

@@ -8,7 +8,8 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const ece = require('http_ece') as { decrypt: (buf: Buffer, opts: Record<string, unknown>) => Buffer };
-import { as, day, org, prisma, resetDb } from './helpers';
+import request from 'supertest';
+import { app, as, day, org, prisma, resetDb } from './helpers';
 import { config } from '../src/config';
 import { resetPushState, vapidSubject } from '../src/services/push';
 
@@ -328,5 +329,33 @@ describe('Web Push (PWA)', () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].title).toBe('Công việc mới');
     expect(msgs[0].body).toBe('Kiểm tra điện lực Ninh Bình\nUser NS001 giao: Kiểm tra hiện trường — hạn 30/09/2026');
+  });
+
+  it('403 khi khoá thiết bị KHỚP (vd lệch giờ) → KHÔNG yêu cầu đăng ký lại (tránh iPhone mất đăng ký)', async () => {
+    const { head, staffA } = await org();
+    const current = (await as(staffA).get('/api/push/public-key')).body.publicKey;
+    const subscription = { endpoint: `${base}/push/ok-key`, keys: browserKeys().keys };
+    await as(staffA).post('/api/push/subscribe', { subscription, appServerKey: current });
+    nextStatus = 403;
+    await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect((await as(staffA).post('/api/push/subscribe', { subscription, appServerKey: current })).body.needsRefresh).toBe(false);
+    expect(await prisma.webPushSubscription.count({ where: { userId: staffA.id } })).toBe(1);
+  });
+
+  it('trình duyệt tự đổi đăng ký (pushsubscriptionchange) → service worker báo máy chủ, không cần đăng nhập', async () => {
+    const { head, staffA } = await org();
+    const oldSub = { endpoint: `${base}/push/old-rotated`, keys: browserKeys().keys };
+    await as(staffA).post('/api/push/subscribe', { subscription: oldSub, userAgent: 'Android Chrome' });
+    const k = browserKeys();
+    const newSub = { endpoint: `${base}/push/new-rotated`, keys: k.keys };
+    // Không biết địa chỉ cũ → từ chối
+    expect((await request(app).post('/api/push-public/resubscribe').send({ oldEndpoint: `${base}/push/khong-co`, subscription: newSub })).status).toBe(404);
+    const r = await request(app).post('/api/push-public/resubscribe').send({ oldEndpoint: oldSub.endpoint, subscription: newSub });
+    expect(r.status).toBe(200);
+    const rows = await prisma.webPushSubscription.findMany({ where: { userId: staffA.id } });
+    expect(rows.map((x) => [x.endpoint, x.userAgent])).toEqual([[newSub.endpoint, 'Android Chrome']]);
+    // Gửi tới đăng ký mới
+    await as(head).post('/api/push/admin/test', { userId: staffA.id });
+    expect(received.map((x) => x.path)).toEqual(['/push/new-rotated']);
   });
 });

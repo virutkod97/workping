@@ -255,6 +255,7 @@ export async function sendPushDetailed(userId: number, p: PushPayload): Promise<
         // 404/410: người dùng đã gỡ ứng dụng / thu hồi quyền → xoá đăng ký
         if (e instanceof WebPushError && (e.statusCode === 404 || e.statusCode === 410)) {
           await prisma.webPushSubscription.deleteMany({ where: { id: s.id } });
+          console.warn(`[push] xoá đăng ký user=${userId} ${device}: ${error}`);
         } else {
           await prisma.webPushSubscription.updateMany({ where: { id: s.id }, data: { lastError: error, lastErrorAt: new Date() } });
           console.error(`[push] gửi thất bại user=${userId} ${device}: ${error}`);
@@ -267,7 +268,10 @@ export async function sendPushDetailed(userId: number, p: PushPayload): Promise<
 
 /** Đăng ký bị dịch vụ push từ chối chữ ký (401/403) ở lần gửi gần nhất → thiết bị cần đăng ký lại */
 export function needsRefresh(sub: { lastError: string | null; lastErrorAt: Date | null; lastOkAt: Date | null; appServerKey?: string | null }): boolean {
-  if (sub.appServerKey && vapid && sub.appServerKey !== vapid.publicKey) return true;
+  // Biết khoá thiết bị đã dùng: chỉ đăng ký lại khi khoá thật sự khác. Lỗi 403 lúc khoá khớp là do
+  // lệch giờ / subject — đăng ký lại không giải quyết được mà còn có thể làm iPhone mất đăng ký.
+  if (sub.appServerKey) return !!vapid && sub.appServerKey !== vapid.publicKey;
+  // Thiết bị chưa báo khoá (bản cũ): dựa vào lỗi 401/403 gần nhất
   return !!sub.lastError && /^(401|403)\b/.test(sub.lastError) && !!sub.lastErrorAt && (!sub.lastOkAt || sub.lastErrorAt > sub.lastOkAt);
 }
 

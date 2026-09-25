@@ -53,3 +53,23 @@ self.addEventListener('notificationclick', (event) => {
     })(),
   );
 });
+
+// Trình duyệt tự đổi đăng ký push (hết hạn / xoay khoá) → tạo đăng ký mới và báo máy chủ,
+// nếu không máy chủ vẫn gửi vào địa chỉ cũ và thiết bị im lặng mất thông báo
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      const old = event.oldSubscription;
+      let sub = event.newSubscription;
+      const key = old && old.options && old.options.applicationServerKey;
+      if (!sub && key) sub = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      if (!old || !sub) return;
+      const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      await fetch('/api/push-public/resubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldEndpoint: old.endpoint, subscription: sub.toJSON(), appServerKey: key ? b64(key) : null }),
+      });
+    })().catch(() => undefined),
+  );
+});

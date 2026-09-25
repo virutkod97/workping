@@ -68,8 +68,35 @@ pushRouter.post('/subscribe', async (req, res) => {
     update: { p256dh: s.keys.p256dh, auth: s.keys.auth, userAgent, userId, ...(appServerKey ? { appServerKey } : {}) },
   });
   // Đăng ký bằng khoá cũ, hoặc lần gửi trước bị từ chối chữ ký → báo trình duyệt tạo đăng ký mới
-  const stale = (!!appServerKey && appServerKey !== publicKey) || (!!existing && needsRefresh(existing));
+  const stale = appServerKey ? appServerKey !== publicKey : !!existing && needsRefresh(existing);
   res.json({ ok: true, needsRefresh: stale });
+});
+
+/**
+ * Trình duyệt tự đổi đăng ký (sự kiện pushsubscriptionchange trong service worker — không có token đăng nhập).
+ * Xác thực bằng địa chỉ đăng ký CŨ: chuỗi bí mật do dịch vụ push cấp, chỉ thiết bị đó biết.
+ */
+export const pushPublicRouter = Router();
+pushPublicRouter.post('/resubscribe', async (req, res) => {
+  const body = parse(
+    z.object({
+      oldEndpoint: z.string().url().max(1000),
+      subscription: subscriptionBody.shape.subscription,
+      appServerKey: z.string().max(200).nullable().optional(),
+    }),
+    req.body,
+  );
+  const old = await prisma.webPushSubscription.findUnique({ where: { endpoint: body.oldEndpoint } });
+  if (!old) return void res.status(404).json({ error: 'Không tìm thấy đăng ký cũ' });
+  const s = body.subscription;
+  await prisma.$transaction([
+    prisma.webPushSubscription.deleteMany({ where: { endpoint: { in: [old.endpoint, s.endpoint] } } }),
+    prisma.webPushSubscription.create({
+      data: { endpoint: s.endpoint, p256dh: s.keys.p256dh, auth: s.keys.auth, userAgent: old.userAgent, userId: old.userId, appServerKey: body.appServerKey ?? old.appServerKey },
+    }),
+  ]);
+  console.log(`[push] thiết bị user=${old.userId} tự đổi đăng ký (pushsubscriptionchange)`);
+  res.json({ ok: true });
 });
 
 /** Gọi khi đăng xuất hoặc tắt thông báo trên thiết bị */

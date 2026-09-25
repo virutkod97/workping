@@ -194,7 +194,27 @@ export async function enablePush(): Promise<PushState> {
   if (perm !== 'granted') return perm === 'denied' ? 'denied' : 'default';
   // Bấm "Bật" = luôn tạo đăng ký mới → sửa được đăng ký hỏng / khoá cũ
   await subscribeAndSave(true);
+  setNeedsFix(false);
   return 'on';
+}
+
+/** Thiết bị cần người dùng bấm "Đăng ký lại" (banner hiển thị) */
+const FIX_KEY = 'workping_push_needs_fix';
+export const pushNeedsFix = () => {
+  try {
+    return localStorage.getItem(FIX_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+function setNeedsFix(v: boolean) {
+  try {
+    if (v) localStorage.setItem(FIX_KEY, '1');
+    else localStorage.removeItem(FIX_KEY);
+  } catch {
+    /* bỏ qua */
+  }
+  window.dispatchEvent(new Event('workping-push-fix'));
 }
 
 /** Mỗi lần mở app/đăng nhập: nếu đã cho phép thì đồng bộ đăng ký lên máy chủ (không hỏi quyền) */
@@ -203,8 +223,11 @@ export async function syncPush() {
     if (!window.isSecureContext || !supported() || Notification.permission !== 'granted') return;
     if (isIOS() && !isStandalone()) return;
     const r = await subscribeAndSave();
-    // Máy chủ báo đăng ký này bị dịch vụ push từ chối (khoá cũ) → tự tạo đăng ký mới
-    if (r.needsRefresh) await subscribeAndSave(true);
+    if (!r.needsRefresh) return setNeedsFix(false);
+    // Máy chủ báo đăng ký dùng khoá cũ. iPhone/iPad chỉ cho tạo đăng ký khi người dùng BẤM NÚT —
+    // tự gỡ rồi tạo lại ngầm sẽ làm mất hẳn thông báo → hiện nút "Sửa ngay" cho người dùng bấm.
+    if (isIOS()) return setNeedsFix(true);
+    await subscribeAndSave(true);
   } catch (e) {
     console.warn('[push] đồng bộ thất bại', e);
   }
