@@ -13,14 +13,16 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="WorkPing" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- "default": iOS tự vẽ thanh trạng thái đặc, nội dung app bắt đầu BÊN DƯỚI thanh trạng thái.
+         (black-translucent cho nội dung tràn lên dưới thanh trạng thái → iOS 26+ phủ lớp kính mờ Liquid Glass lên giao diện) -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <style>
       /* Bỏ lề mặc định của trình duyệt: tránh viền trắng & thanh cuộn thừa */
       *, *::before, *::after { box-sizing: border-box; }
       html, body, #root { margin: 0; padding: 0; min-height: 100%; }
       body { background: #f5f5f5; }
-      /* Vùng tai thỏ / thanh trạng thái iPhone khi mở từ Màn hình chính (status-bar-style black-translucent):
-         nội dung phải chừa chỗ, và tô nền đậm để chữ giờ/pin (màu trắng) nhìn thấy được */
+      /* Vùng tai thỏ khi nội dung tràn lên dưới thanh trạng thái (bản cài cũ dùng black-translucent).
+         Với status-bar-style "default" iOS đặt nội dung bên dưới → --sat = 0, các phần này tự không chiếm chỗ */
       :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
       .safe-top { position: fixed; top: 0; left: 0; right: 0; height: var(--sat); background: #1F4E78; z-index: 1100; pointer-events: none; }
     </style>
