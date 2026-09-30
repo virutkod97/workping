@@ -1,10 +1,16 @@
-# Đẩy tag v* (vd v1.0.0) → build, chạy test, đóng gói và tạo GitHub Release
+# Build, chạy test, đóng gói và tạo GitHub Release. Hai cách:
+#   - đẩy tag v* (vd v1.0.0), hoặc
+#   - Actions → Release → Run workflow, nhập phiên bản (vd 1.0.0) → tự tạo tag v1.0.0 trên commit đang chọn
 name: Release
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Phiên bản phát hành (vd 1.0.0). Để trống = chỉ build thử, không tạo Release'
+        required: false
 
 permissions:
   contents: write
@@ -53,27 +59,34 @@ jobs:
 
       - name: Đóng gói
         id: pkg
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
         run: |
-          VER="${GITHUB_REF_NAME#v}"
-          [[ "$GITHUB_REF_TYPE" == tag ]] || VER="$(node -p "require('./backend/package.json').version")-dev"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then VER="${GITHUB_REF_NAME#v}"
+          elif [[ -n "$VERSION_INPUT" ]]; then VER="$VERSION_INPUT"
+          else VER="$(node -p "require('./backend/package.json').version")-dev"; fi
+          [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "Phiên bản không hợp lệ: $VER"; exit 1; }
           NAME="workping-$VER"
           # Mã nguồn (cài bằng deploy/install.sh) — không kèm node_modules, dist
           git archive --format=tar.gz --prefix="$NAME/" -o "$NAME.tar.gz" HEAD
           sha256sum "$NAME.tar.gz" > SHA256SUMS.txt
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
 
-      - name: Tạo Release
-        if: github.ref_type == 'tag'
+      - name: Tạo Release (và tag nếu chạy tay)
+        if: github.ref_type == 'tag' || inputs.version != ''
         uses: softprops/action-gh-release@v2
         with:
-          name: WorkPing ${{ github.ref_name }}
+          tag_name: ${{ steps.pkg.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: WorkPing ${{ steps.pkg.outputs.tag }}
           body_path: RELEASE_NOTES.md
           files: |
             ${{ steps.pkg.outputs.name }}.tar.gz
             SHA256SUMS.txt
 
-      - name: Lưu gói (chạy tay)
-        if: github.ref_type != 'tag'
+      - name: Lưu gói (build thử)
+        if: github.ref_type != 'tag' && inputs.version == ''
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.pkg.outputs.name }}
