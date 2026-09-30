@@ -32,7 +32,7 @@ Cách A – clone từ GitHub (repo private cần Personal Access Token):
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git
-git clone https://github.com/virutkod97/workping.git
+git clone -b main https://github.com/virutkod97/workping.git
 cd workping
 ```
 

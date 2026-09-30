@@ -1,0 +1,82 @@
+# Đẩy tag v* (vd v1.0.0) → build, chạy test, đóng gói và tạo GitHub Release
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: workping
+          POSTGRES_PASSWORD: workping
+          POSTGRES_DB: workping_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U workping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://workping:workping@localhost:5432/workping_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            web/package-lock.json
+
+      - name: Backend — cài, build, test
+        working-directory: backend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          npx vitest run
+
+      - name: Web — cài, build
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Kiểm tra script triển khai
+        run: shellcheck -S warning deploy/*.sh
+
+      - name: Đóng gói
+        id: pkg
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF_TYPE" == tag ]] || VER="$(node -p "require('./backend/package.json').version")-dev"
+          NAME="workping-$VER"
+          # Mã nguồn (cài bằng deploy/install.sh) — không kèm node_modules, dist
+          git archive --format=tar.gz --prefix="$NAME/" -o "$NAME.tar.gz" HEAD
+          sha256sum "$NAME.tar.gz" > SHA256SUMS.txt
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Tạo Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WorkPing ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            ${{ steps.pkg.outputs.name }}.tar.gz
+            SHA256SUMS.txt
+
+      - name: Lưu gói (chạy tay)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.name }}
+          path: |
+            ${{ steps.pkg.outputs.name }}.tar.gz
+            SHA256SUMS.txt
